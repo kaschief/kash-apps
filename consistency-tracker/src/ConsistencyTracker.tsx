@@ -16,7 +16,7 @@ interface AnalyzedDay extends Day {
 
 const ConsistencyTracker = () => {
   const [consistencyLimit, setConsistencyLimit] = useState(50);
-  const [profitTarget, setProfitTarget] = useState("");
+  const [profitTarget, setProfitTarget] = useState("3000");
   const [liveBalance, setLiveBalance] = useState("");
   const [days, setDays] = useState<Day[]>([{ id: 1, profit: "" }]);
 
@@ -38,11 +38,11 @@ const ConsistencyTracker = () => {
   const analysis = useMemo(() => {
     // Calculate sum of days with entered profits
     const enteredDays = days.filter(
-      (d) => d.profit !== "" && !isNaN(parseFloat(d.profit))
+      (d) => d.profit !== "" && !isNaN(parseFloat(d.profit)),
     );
     const enteredTotal = enteredDays.reduce(
       (sum, d) => sum + parseFloat(d.profit),
-      0
+      0,
     );
 
     // If live balance is set, calculate the "live day" P&L
@@ -154,7 +154,7 @@ const ConsistencyTracker = () => {
     const worstViolation =
       violations.length > 0
         ? violations.reduce((worst, d) =>
-            d.percentage > worst.percentage ? d : worst
+            d.percentage > worst.percentage ? d : worst,
           )
         : null;
 
@@ -232,11 +232,16 @@ const ConsistencyTracker = () => {
         ? (safeLimitFraction * totalProfit) / (1 - safeLimitFraction)
         : maxPerDayFromTarget;
 
-    // Use the lower of: target-based max OR the self-constraint max
-    // This applies whether violating or not - the constraint is about the NEW day
+    // Use the lower of: target-based max, the self-constraint max, OR what's
+    // actually left to hit the target. You should never be told to make more
+    // in a day than remains to the target — that would overshoot it.
+    // Capping at remaining is safe for minDaysNeeded: when remaining exceeds
+    // the consistency cap, the cap stays the binding constraint; only when
+    // you're within one day of the target does remaining bind (→ 1 day left).
     const actualMaxPerDay = Math.min(
       maxPerDayFromTarget,
-      maxNextDayWithoutViolation
+      maxNextDayWithoutViolation,
+      remainingToTarget > 0 ? remainingToTarget : Infinity,
     );
 
     // Minimum trading days needed = remaining / actual max per day (rounded up)
@@ -250,7 +255,7 @@ const ConsistencyTracker = () => {
       const violatingDays = dayAnalysis.filter((d) => d.isViolating);
       const biggestDay = violatingDays.reduce(
         (max, d) => (d.profitNum > max.profitNum ? d : max),
-        violatingDays[0]
+        violatingDays[0],
       );
 
       // Option A: Add more profit today to dilute
@@ -278,9 +283,16 @@ const ConsistencyTracker = () => {
       const tomorrowMin = addMoreToFix;
       const selfConstraintMax =
         (safeLimitFraction * totalProfit) / (1 - safeLimitFraction);
+      // Cap the safe range at what's left to the target — never suggest a
+      // per-day amount that would overshoot it. remainingToTarget is always
+      // >= tomorrowMin (the fix amount), so the range never inverts here.
       const tomorrowMax =
         targetNum > 0
-          ? Math.min(selfConstraintMax, targetNum * safeLimitFraction)
+          ? Math.min(
+              selfConstraintMax,
+              targetNum * safeLimitFraction,
+              remainingToTarget,
+            )
           : selfConstraintMax;
 
       // Check if the biggest violating day is the last entry (can still reduce it)
@@ -308,7 +320,7 @@ const ConsistencyTracker = () => {
     if (targetPushedUp && !currentlyViolating && profitDays.length > 0) {
       const biggestDay = dayAnalysis.reduce(
         (max, d) => (d.profitNum > max.profitNum ? d : max),
-        dayAnalysis[0]
+        dayAnalysis[0],
       );
       const maxAllowedForOriginalTarget = targetNum * safeLimitFraction;
 
@@ -459,7 +471,7 @@ const ConsistencyTracker = () => {
                 letterSpacing: "-0.5px",
                 color: "#fff",
               }}>
-              Yoto's Consistency Rule Tracker
+              Kash's Consistency Rule Tracker
             </h1>
           </div>
           <p
@@ -514,8 +526,8 @@ const ConsistencyTracker = () => {
                     setConsistencyLimit(
                       Math.max(
                         1,
-                        Math.min(100, parseFloat(e.target.value) || 0)
-                      )
+                        Math.min(100, parseFloat(e.target.value) || 0),
+                      ),
                     )
                   }
                   style={{
@@ -704,10 +716,10 @@ const ConsistencyTracker = () => {
 
           {days.map((day, index) => {
             const dayAnalysis = analysis.dayAnalysis.find(
-              (d) => d.id === day.id
+              (d) => d.id === day.id,
             );
             const liveDay = analysis.dayAnalysis.find(
-              (d) => d.isLiveDay && d.id === day.id
+              (d) => d.isLiveDay && d.id === day.id,
             );
             const isViolating =
               dayAnalysis?.isViolating || liveDay?.isViolating || false;
@@ -810,8 +822,8 @@ const ConsistencyTracker = () => {
                     color: isViolating
                       ? "#ff4444"
                       : (percentage ?? 0) > consistencyLimit * 0.8
-                      ? "#ffaa00"
-                      : "#666",
+                        ? "#ffaa00"
+                        : "#666",
                   }}>
                   {percentage !== undefined ? formatPercent(percentage) : "—"}
                 </div>
@@ -878,8 +890,8 @@ const ConsistencyTracker = () => {
                   analysis.totalProfit > 0
                     ? "#00ff88"
                     : analysis.totalProfit < 0
-                    ? "#ff4444"
-                    : "#888",
+                      ? "#ff4444"
+                      : "#888",
               }}>
               {formatCurrency(analysis.totalProfit)}
             </div>
@@ -911,7 +923,7 @@ const ConsistencyTracker = () => {
                   color: "#ccc",
                 }}>
                 {formatCurrency(
-                  analysis.totalProfit + (analysis.minNeededToFix || 0)
+                  analysis.totalProfit + (analysis.minNeededToFix || 0),
                 )}
               </div>
               <div
@@ -1018,6 +1030,50 @@ const ConsistencyTracker = () => {
                       {formatCurrency(analysis.maxPerDay)}
                     </span>
                   </span>
+                </div>
+              </div>
+
+              {/* Subtle progress bar — visible even while violating, for
+                  encouragement. Kept low-contrast so the violation stays
+                  the dominant signal. */}
+              <div style={{ marginTop: "12px" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    fontSize: "10px",
+                    color: "#555",
+                    marginBottom: "6px",
+                  }}>
+                  <span>Progress to Target</span>
+                  <span>
+                    {(
+                      (analysis.totalProfit / analysis.effectiveTarget) *
+                      100
+                    ).toFixed(1)}
+                    %
+                  </span>
+                </div>
+                <div
+                  style={{
+                    height: "5px",
+                    background: "#1a1a1b",
+                    borderRadius: "3px",
+                    overflow: "hidden",
+                  }}>
+                  <div
+                    style={{
+                      height: "100%",
+                      width: `${Math.min(
+                        100,
+                        (analysis.totalProfit / analysis.effectiveTarget) * 100,
+                      )}%`,
+                      background:
+                        "linear-gradient(90deg, #00aaff 0%, #00ff88 100%)",
+                      borderRadius: "3px",
+                      transition: "width 0.3s ease",
+                    }}
+                  />
                 </div>
               </div>
             </div>
@@ -1153,20 +1209,18 @@ const ConsistencyTracker = () => {
                       style={{
                         fontSize: "10px",
                         color:
-                          analysis.remainingToTarget < analysis.maxPerDay
-                            ? "#00ff88"
-                            : "#444",
+                          analysis.minDaysNeeded <= 1 ? "#00ff88" : "#444",
                         marginTop: "2px",
                       }}>
-                      {analysis.remainingToTarget < analysis.maxPerDay
+                      {analysis.minDaysNeeded <= 1
                         ? `Only ${formatCurrency(
-                            analysis.remainingToTarget
+                            analysis.remainingToTarget,
                           )} needed to complete`
                         : analysis.dayAnalysis.some(
-                            (d) => d.percentage >= consistencyLimit - 0.1
-                          )
-                        ? "For next day — current day at limit"
-                        : "Safe limit for next trade"}
+                              (d) => d.percentage >= consistencyLimit - 0.1,
+                            )
+                          ? "For next day — current day at limit"
+                          : "Safe limit for next trade"}
                     </div>
                   </div>
                 )}
@@ -1235,7 +1289,7 @@ const ConsistencyTracker = () => {
                       height: "100%",
                       width: `${Math.min(
                         100,
-                        (analysis.totalProfit / analysis.effectiveTarget) * 100
+                        (analysis.totalProfit / analysis.effectiveTarget) * 100,
                       )}%`,
                       background:
                         analysis.totalProfit >= analysis.effectiveTarget
@@ -1281,15 +1335,14 @@ const ConsistencyTracker = () => {
                       Give back{" "}
                       <span style={{ color: "#ffaa00", fontWeight: "600" }}>
                         {formatCurrency(
-                          analysis.targetPushedGuidance.reduceAmount
+                          analysis.targetPushedGuidance.reduceAmount,
                         )}
                       </span>{" "}
-                      on{" "}
-                      Day {analysis.targetPushedGuidance.biggestDay.id}
+                      on Day {analysis.targetPushedGuidance.biggestDay.id}
                       {" → "}P&L becomes{" "}
                       <span style={{ color: "#fff", fontWeight: "500" }}>
                         {formatCurrency(
-                          analysis.targetPushedGuidance.newBigDayAfterReduce
+                          analysis.targetPushedGuidance.newBigDayAfterReduce,
                         )}
                       </span>
                     </div>
@@ -1352,7 +1405,7 @@ const ConsistencyTracker = () => {
                   }}>
                   {analysis.isViolating && analysis.worstViolation
                     ? `Worst: ${formatPercent(
-                        analysis.worstViolation.percentage
+                        analysis.worstViolation.percentage,
                       )} on single day (limit: ${consistencyLimit}%)`
                     : `All days are under ${consistencyLimit}% of total profit`}
                 </div>
@@ -1513,9 +1566,7 @@ const ConsistencyTracker = () => {
                     <span style={{ color: "#ffaa00", fontWeight: "600" }}>
                       {formatCurrency(analysis.guidance.reduceAmount)}
                     </span>{" "}
-                    on{" "}
-                    Day {analysis.guidance.biggestDay.id}
-                    → P&L becomes{" "}
+                    on Day {analysis.guidance.biggestDay.id}→ P&L becomes{" "}
                     <span style={{ color: "#fff", fontWeight: "500" }}>
                       {formatCurrency(analysis.guidance.newBigDayAfterReduce)}
                     </span>
@@ -1529,7 +1580,7 @@ const ConsistencyTracker = () => {
                     New total:{" "}
                     <span style={{ color: "#ccc" }}>
                       {formatCurrency(
-                        analysis.totalProfit - analysis.guidance.reduceAmount
+                        analysis.totalProfit - analysis.guidance.reduceAmount,
                       )}
                     </span>{" "}
                     — Take a controlled loss to bring that day under the limit
@@ -1591,7 +1642,7 @@ const ConsistencyTracker = () => {
                     ? "Min to fix violation, max before creating a new one"
                     : `Need ${Math.ceil(
                         (analysis.guidance.tomorrowMin ?? 0) /
-                          (analysis.guidance.tomorrowMax ?? 1)
+                          (analysis.guidance.tomorrowMax ?? 1),
                       )} more days to fix at this pace`}
                 </div>
               </div>
