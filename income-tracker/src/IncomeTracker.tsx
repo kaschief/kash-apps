@@ -191,9 +191,6 @@ export default function IncomeTracker() {
   const [propFirmAccounts, setPropFirmAccounts] = useState("1");
   const [tradesPerDay, setTradesPerDay] = useState("1");
   const [hoursPerDay, setHoursPerDay] = useState("5");
-  const [contracts, setContracts] = useState("1");
-  const [tickValue, setTickValue] = useState("0.50");
-  const [ticksPerPoint, setTicksPerPoint] = useState("4");
   const [hasChurchTax, setHasChurchTax] = useState(false);
   const [monthlyExpenses, setMonthlyExpenses] = useState("2000");
   const [employmentMode, setEmploymentMode] = useState<
@@ -206,9 +203,6 @@ export default function IncomeTracker() {
     const accounts = parseFloat(propFirmAccounts) || 1;
     const trades = parseFloat(tradesPerDay) || 1;
     const hours = parseFloat(hoursPerDay) || 1;
-    const numContracts = parseFloat(contracts) || 1;
-    const tickVal = parseFloat(tickValue) || 0.5;
-    const tpp = parseFloat(ticksPerPoint) || 4;
 
     const tradingDaysPerMonth = Math.min(16, daysPerWeek * 4);
 
@@ -226,12 +220,6 @@ export default function IncomeTracker() {
     const perAccount = accounts > 0 ? daily / accounts : 0;
     const perTrade = trades > 0 ? perAccount / trades : 0;
     const hourlyRate = hours > 0 ? daily / hours : 0;
-
-    const ticksPerDay = tickVal > 0 ? perAccount / (tickVal * numContracts) : 0;
-    const ticksPerTrade =
-      trades > 0 && tickVal > 0 ? perTrade / (tickVal * numContracts) : 0;
-    const pointsPerDay = tpp > 0 ? ticksPerDay / tpp : 0;
-    const pointsPerTrade = tpp > 0 ? ticksPerTrade / tpp : 0;
 
     // === GERMAN TAX CALCULATIONS (2026) ===
     const grossAnnual = annual;
@@ -278,10 +266,6 @@ export default function IncomeTracker() {
       trades,
       perTrade,
       hourlyRate,
-      ticksPerDay,
-      ticksPerTrade,
-      pointsPerDay,
-      pointsPerTrade,
       incomeTax,
       solidaritySurcharge,
       churchTax,
@@ -313,9 +297,6 @@ export default function IncomeTracker() {
     propFirmAccounts,
     tradesPerDay,
     hoursPerDay,
-    contracts,
-    tickValue,
-    ticksPerPoint,
     hasChurchTax,
     monthlyExpenses,
     employmentMode,
@@ -632,70 +613,6 @@ export default function IncomeTracker() {
                 </div>
                 <div className="text-xs text-gray-500">
                   {hoursPerDay || 1}h/day
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
-              <div className="text-xs uppercase tracking-wider text-gray-500 mb-3">
-                Futures Calculator
-              </div>
-              <div className="flex flex-wrap gap-4 mb-4">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">
-                    Contracts
-                  </label>
-                  <input
-                    type="number"
-                    value={contracts}
-                    onChange={(e) => setContracts(e.target.value)}
-                    className="bg-gray-950 border border-gray-800 rounded px-3 py-2 text-white text-base font-semibold text-center w-16 focus:outline-none focus:border-gray-600"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">
-                    Tick Value
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={tickValue}
-                    onChange={(e) => setTickValue(e.target.value)}
-                    className="bg-gray-950 border border-gray-800 rounded px-3 py-2 text-white text-base font-semibold text-center w-20 focus:outline-none focus:border-gray-600"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">
-                    Ticks/Point
-                  </label>
-                  <input
-                    type="number"
-                    value={ticksPerPoint}
-                    onChange={(e) => setTicksPerPoint(e.target.value)}
-                    className="bg-gray-950 border border-gray-800 rounded px-3 py-2 text-white text-base font-semibold text-center w-16 focus:outline-none focus:border-gray-600"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4 pt-3 border-t border-gray-800">
-                <div>
-                  <div className="text-xs text-gray-500 mb-1">Per Day</div>
-                  <div className="text-2xl font-bold text-cyan-400">
-                    {calculations.pointsPerDay.toFixed(1)}{" "}
-                    <span className="text-sm text-gray-500">pts</span>
-                  </div>
-                  <div className="text-xs text-gray-500">
-                    {Math.ceil(calculations.ticksPerDay)} ticks
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-gray-500 mb-1">Per Trade</div>
-                  <div className="text-2xl font-bold text-cyan-400">
-                    {calculations.pointsPerTrade.toFixed(1)}{" "}
-                    <span className="text-sm text-gray-500">pts</span>
-                  </div>
-                  <div className="text-xs text-gray-500">
-                    {Math.ceil(calculations.ticksPerTrade)} ticks
-                  </div>
                 </div>
               </div>
             </div>
