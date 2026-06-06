@@ -286,7 +286,7 @@ function StatCard({
         {label}
       </div>
       <div
-        className={`mt-1 whitespace-nowrap text-lg font-bold tabular-nums sm:text-xl ${accent}`}>
+        className={`mt-1 whitespace-nowrap text-base font-bold tabular-nums sm:text-xl ${accent}`}>
         {value}
       </div>
       {sub ? (
@@ -664,35 +664,39 @@ export default function IncomeTracker() {
 
         {/* HERO — gross → net, visible in every input mode */}
         <section className="rounded-xl border border-green-500/20 bg-green-500/[0.05] p-5 sm:p-6">
-          <div className="grid grid-cols-3 divide-x divide-gray-700/60">
-            <div className="px-2 text-center">
-              <div className="text-[10px] uppercase tracking-wider text-gray-400">
+          {/* Stacks on mobile (horizontal dividers); 3-up from sm where there's
+              room — avoids the cramped side-by-side overflow on narrow screens. */}
+          <div className="grid grid-cols-1 divide-y divide-gray-700/60 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+            <div className="px-2 py-2.5 text-center sm:py-0">
+              <div className="text-[10px] uppercase tracking-wider text-gray-400 sm:mb-1">
                 Daily Gross
               </div>
-              <div className="mt-1 text-xl font-bold tabular-nums text-green-400 sm:text-3xl">
+              <div className="mt-0.5 text-xl font-bold tabular-nums text-green-400 sm:mt-0 sm:text-3xl">
                 {eur(calculations.daily)}
               </div>
-              <div className="mt-1 text-[10px] text-gray-500">
+              <div className="mt-0.5 text-[10px] text-gray-500 sm:mt-1">
                 × {calculations.tradingDaysPerMonth} days
               </div>
             </div>
-            <div className="px-2 text-center">
-              <div className="text-[10px] uppercase tracking-wider text-gray-400">
+            <div className="px-2 py-2.5 text-center sm:py-0">
+              <div className="text-[10px] uppercase tracking-wider text-gray-400 sm:mb-1">
                 Monthly Gross
               </div>
-              <div className="mt-1 text-xl font-bold tabular-nums text-green-400 sm:text-3xl">
+              <div className="mt-0.5 text-xl font-bold tabular-nums text-green-400 sm:mt-0 sm:text-3xl">
                 {eur(calculations.monthly)}
               </div>
-              <div className="mt-1 text-[10px] text-gray-500">before tax</div>
+              <div className="mt-0.5 text-[10px] text-gray-500 sm:mt-1">
+                before tax
+              </div>
             </div>
-            <div className="px-2 text-center">
-              <div className="text-[10px] uppercase tracking-wider text-gray-400">
+            <div className="px-2 py-2.5 text-center sm:py-0">
+              <div className="text-[10px] uppercase tracking-wider text-gray-400 sm:mb-1">
                 Monthly Net
               </div>
-              <div className="mt-1 text-xl font-bold tabular-nums text-green-400 sm:text-3xl">
+              <div className="mt-0.5 text-xl font-bold tabular-nums text-green-400 sm:mt-0 sm:text-3xl">
                 {eur(calculations.netMonthly)}
               </div>
-              <div className="mt-1 text-[10px] text-gray-500">
+              <div className="mt-0.5 text-[10px] text-gray-500 sm:mt-1">
                 after {calculations.effectiveTaxRate.toFixed(0)}% tax
               </div>
             </div>
