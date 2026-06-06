@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, type ReactNode } from "react";
 
 // =============================================================================
 // GERMANY TAX CONSTANTS 2026
@@ -62,7 +62,10 @@ const PENSION_INSURANCE_CEILING = 101400; // Annual ceiling for pension (West)
 // from these — no duplicated pipelines.
 
 // Progressive Einkommensteuer with Ehegattensplitting.
-function calculateGermanIncomeTax(taxableIncome: number, married: boolean): number {
+function calculateGermanIncomeTax(
+  taxableIncome: number,
+  married: boolean,
+): number {
   const splitIncome = married ? taxableIncome / 2 : taxableIncome;
 
   let tax: number;
@@ -126,7 +129,10 @@ function computeBreakdown(grossAnnual: number, opts: TaxOpts): Breakdown {
 
   const totalSocial =
     healthInsurance + careInsurance + pensionInsurance + unemploymentInsurance;
-  const taxableIncome = Math.max(0, grossAnnual - healthInsurance - careInsurance);
+  const taxableIncome = Math.max(
+    0,
+    grossAnnual - healthInsurance - careInsurance,
+  );
 
   const incomeTax = calculateGermanIncomeTax(taxableIncome, opts.married);
   const soli = incomeTax > SOLI_THRESHOLD ? incomeTax * SOLI_RATE : 0;
@@ -172,7 +178,11 @@ function solveGrossForNet(targetNetAnnual: number, opts: TaxOpts): number {
   if (targetNetAnnual <= 0) return 0;
   let lo = 0;
   let hi = Math.max(targetNetAnnual * 2, 50000);
-  for (let g = 0; g < 100 && computeBreakdown(hi, opts).netAnnual < targetNetAnnual; g++) {
+  for (
+    let g = 0;
+    g < 100 && computeBreakdown(hi, opts).netAnnual < targetNetAnnual;
+    g++
+  ) {
     hi *= 2;
   }
   for (let i = 0; i < 80; i++) {
@@ -183,13 +193,173 @@ function solveGrossForNet(targetNetAnnual: number, opts: TaxOpts): number {
   return (lo + hi) / 2;
 }
 
+// =============================================================================
+// PRESENTATIONAL HELPERS
+// =============================================================================
+// Pure, module-scoped so they aren't recreated each render. They hold no state
+// and own no business logic — formatting and layout only.
+
+const formatNumber = (num: number) =>
+  new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(num);
+
+const eur = (num: number) => `€${formatNumber(num)}`;
+
+// Collapsible section using native <details> — accessible and keyboard-driven
+// with no extra state. The chevron rotates via the `group-open` variant.
+function CollapsibleSection({
+  title,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <details
+      open={defaultOpen}
+      className="group rounded-xl border border-gray-800 bg-gray-900">
+      <summary className="flex cursor-pointer list-none items-center justify-between p-4 text-xs uppercase tracking-wider text-gray-500 hover:text-gray-300 focus-visible:outline focus-visible:outline-1 focus-visible:outline-gray-600 [&::-webkit-details-marker]:hidden">
+        <span>{title}</span>
+        <span className="text-gray-600 transition-transform group-open:rotate-90">
+          ▸
+        </span>
+      </summary>
+      <div className="px-4 pb-4">{children}</div>
+    </details>
+  );
+}
+
+function NumField({
+  label,
+  value,
+  onChange,
+  accent = false,
+  min,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  accent?: boolean;
+  min?: number;
+}) {
+  return (
+    // Full-height flex column with the input pushed to the bottom so labels of
+    // any length (1 or 2 lines) keep every input aligned on the same baseline.
+    <label className="flex h-full flex-col">
+      <span className="mb-1 block text-[10px] uppercase leading-tight tracking-wider text-gray-500">
+        {label}
+      </span>
+      <input
+        type="number"
+        inputMode="decimal"
+        min={min}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={`mt-auto w-full rounded border bg-gray-950 px-3 py-2 text-center text-base font-semibold text-white focus:outline-none ${
+          accent
+            ? "border-green-500/40 focus:border-green-500"
+            : "border-gray-800 focus:border-gray-600"
+        }`}
+      />
+    </label>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  sub,
+  accent = "text-white",
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  accent?: string;
+}) {
+  return (
+    <div className="rounded-xl border border-gray-800 bg-gray-900 p-3">
+      <div className="text-[10px] uppercase tracking-wider text-gray-500">
+        {label}
+      </div>
+      <div
+        className={`mt-1 whitespace-nowrap text-lg font-bold tabular-nums sm:text-xl ${accent}`}>
+        {value}
+      </div>
+      {sub ? (
+        <div className="mt-0.5 text-[10px] text-gray-500">{sub}</div>
+      ) : null}
+    </div>
+  );
+}
+
+function DeductionRow({
+  label,
+  annual,
+  monthly,
+  strong = false,
+}: {
+  label: string;
+  annual: number;
+  monthly: number;
+  strong?: boolean;
+}) {
+  const numCls = strong ? "text-red-400" : "text-gray-400";
+  return (
+    <div
+      className={`flex items-baseline gap-2 ${
+        strong
+          ? "border-t border-gray-800 pt-2 font-medium text-gray-300"
+          : "text-gray-400"
+      }`}>
+      <span className="flex-1 truncate">{label}</span>
+      <span
+        className={`w-24 whitespace-nowrap text-right tabular-nums ${numCls}`}>
+        −€{formatNumber(annual)}
+      </span>
+      <span
+        className={`w-20 whitespace-nowrap text-right tabular-nums ${numCls}`}>
+        −€{formatNumber(monthly)}
+      </span>
+    </div>
+  );
+}
+
+function Segmented<T extends string>({
+  value,
+  onChange,
+  options,
+}: {
+  value: T;
+  onChange: (value: T) => void;
+  options: { value: T; label: string; active: string }[];
+}) {
+  return (
+    <div className="flex gap-1 rounded bg-gray-950 p-1">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          onClick={() => onChange(o.value)}
+          className={`rounded px-3 py-1 text-xs transition-colors ${
+            value === o.value ? o.active : "text-gray-500 hover:text-gray-300"
+          }`}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function IncomeTracker() {
-  const [mode, setMode] = useState("monthly");
+  const [mode, setMode] = useState<"monthly" | "daily" | "net">("monthly");
   const [monthlyTarget, setMonthlyTarget] = useState("7500");
-  const [dailyTarget, setDailyTarget] = useState("");
+  const [dailyTarget, setDailyTarget] = useState("300");
+  const [netTarget, setNetTarget] = useState("4500");
   const [tradingDaysPerWeek, setTradingDaysPerWeek] = useState("3");
   const [propFirmAccounts, setPropFirmAccounts] = useState("1");
-  const [tradesPerDay, setTradesPerDay] = useState("1");
   const [hoursPerDay, setHoursPerDay] = useState("5");
   const [hasChurchTax, setHasChurchTax] = useState(false);
   const [monthlyExpenses, setMonthlyExpenses] = useState("2000");
@@ -197,11 +367,11 @@ export default function IncomeTracker() {
     "freelancer" | "employed"
   >("freelancer");
   const [isMarried, setIsMarried] = useState(false);
+  const [showAllLevels, setShowAllLevels] = useState(false);
 
   const calculations = useMemo(() => {
     const daysPerWeek = parseFloat(tradingDaysPerWeek) || 0;
     const accounts = parseFloat(propFirmAccounts) || 1;
-    const trades = parseFloat(tradesPerDay) || 1;
     const hours = parseFloat(hoursPerDay) || 1;
 
     const tradingDaysPerMonth = Math.min(16, daysPerWeek * 4);
@@ -210,15 +380,25 @@ export default function IncomeTracker() {
     if (mode === "monthly") {
       monthly = parseFloat(monthlyTarget) || 0;
       daily = tradingDaysPerMonth > 0 ? monthly / tradingDaysPerMonth : 0;
-    } else {
+    } else if (mode === "daily") {
       daily = parseFloat(dailyTarget) || 0;
       monthly = daily * tradingDaysPerMonth;
+    } else {
+      // Net mode: back-solve the gross profit that nets the desired take-home,
+      // given the current tax situation, then derive everything from it.
+      const desiredNetMonthly = parseFloat(netTarget) || 0;
+      monthly =
+        solveGrossForNet(desiredNetMonthly * 12, {
+          isFreelancer: employmentMode === "freelancer",
+          married: isMarried,
+          church: hasChurchTax,
+        }) / 12;
+      daily = tradingDaysPerMonth > 0 ? monthly / tradingDaysPerMonth : 0;
     }
 
     const annual = monthly * 12;
     const weekly = monthly / 4;
     const perAccount = accounts > 0 ? daily / accounts : 0;
-    const perTrade = trades > 0 ? perAccount / trades : 0;
     const hourlyRate = hours > 0 ? daily / hours : 0;
 
     // === GERMAN TAX CALCULATIONS (2026) ===
@@ -263,8 +443,6 @@ export default function IncomeTracker() {
       monthly,
       daily,
       perAccount,
-      trades,
-      perTrade,
       hourlyRate,
       incomeTax,
       solidaritySurcharge,
@@ -293,21 +471,15 @@ export default function IncomeTracker() {
     mode,
     monthlyTarget,
     dailyTarget,
+    netTarget,
     tradingDaysPerWeek,
     propFirmAccounts,
-    tradesPerDay,
     hoursPerDay,
     hasChurchTax,
     monthlyExpenses,
     employmentMode,
     isMarried,
   ]);
-
-  const formatNumber = (num: number) =>
-    new Intl.NumberFormat("en-US", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(num);
 
   // Generate comparison levels (4 below, current, 4 above)
   const comparisonLevels = useMemo(() => {
@@ -341,10 +513,31 @@ export default function IncomeTracker() {
     });
   }, [calculations.monthly, employmentMode, isMarried, hasChurchTax]);
 
-  // Employment vs self-employment, anchored on take-home: the monthly target is
-  // treated as desired net, then everything is back-calculated from it.
+  // Index of the current row in comparisonLevels — used to render a compact
+  // window (current ±1) until the user expands to the full ladder.
+  const currentLevelIdx = comparisonLevels.findIndex(
+    (l) => l.grossMonthly === calculations.monthly,
+  );
+
+  // Rows to show (compact window around current, or all) paired with each row's
+  // previous *visible* net — so the Δ column is blank for the first shown row
+  // instead of referencing a row that's hidden when collapsed.
+  const visibleLevels = comparisonLevels
+    .map((level, idx) => ({ level, idx }))
+    .filter(({ idx }) => showAllLevels || Math.abs(idx - currentLevelIdx) <= 1)
+    .map((item, vIdx, arr) => ({
+      ...item,
+      prevVisibleNet: vIdx > 0 ? arr[vIdx - 1].level.netMonthly : null,
+    }));
+
+  // Employment vs self-employment, anchored on the ACTUAL take-home computed
+  // above (net of German tax on the trading profit) — NOT the gross target.
+  // This keeps one consistent meaning of the input across the whole screen:
+  // the gross target is taxed once, and everything here back-calculates from
+  // the resulting net. The freelance "profit for same take-home" therefore
+  // reconciles back to the original gross target.
   const employmentComparison = useMemo(() => {
-    const targetNetMonthly = calculations.monthly;
+    const targetNetMonthly = calculations.netMonthly;
     const targetNetAnnual = targetNetMonthly * 12;
     const married = isMarried;
     const church = hasChurchTax;
@@ -355,682 +548,464 @@ export default function IncomeTracker() {
       married,
       church,
     });
-    const employerSocial = computeEmployerSocial(employeeGross);
-    const employerCost = employeeGross + employerSocial;
+    const employerCost = employeeGross + computeEmployerSocial(employeeGross);
 
-    // Freelancer: profit needed to match the take-home (lifestyle).
+    // Freelancer: profit needed to match the take-home, and what to reserve.
     const freelancerMatchNet = solveGrossForNet(targetNetAnnual, {
       isFreelancer: true,
       married,
       church,
     });
-
-    // Freelancer full value (a): also self-fund the pension + unemployment safety
-    // the employer was covering (both halves), then solve for that higher net.
-    const pensionBase = Math.min(employeeGross, PENSION_INSURANCE_CEILING);
-    const safetyToReplace =
-      pensionBase * PENSION_INSURANCE_RATE +
-      pensionBase * UNEMPLOYMENT_INSURANCE_RATE;
-    const freelancerFullValueCost = solveGrossForNet(
-      targetNetAnnual + safetyToReplace,
-      { isFreelancer: true, married, church }
-    );
-
-    // Freelancer full value (b): simple gross-up — match total employer cost.
-    const freelancerFullValueEmployerCost = employerCost;
-
-    // Reserves on the lifestyle-matching profit.
     const fl = computeBreakdown(freelancerMatchNet, {
       isFreelancer: true,
       married,
       church,
     });
-    const taxReserve = fl.totalTax;
-    const healthCareReserve = fl.healthInsurance + fl.careInsurance;
+    const reserve = fl.totalTax + fl.healthInsurance + fl.careInsurance;
 
     return {
       targetNetMonthly,
-      targetNetAnnual,
       employeeGross,
-      employerSocial,
       employerCost,
       freelancerMatchNet,
-      freelancerFullValueCost,
-      freelancerFullValueEmployerCost,
-      taxReserve,
-      healthCareReserve,
+      reserve,
     };
-  }, [calculations.monthly, isMarried, hasChurchTax]);
+  }, [calculations.netMonthly, isMarried, hasChurchTax]);
 
   const ec = employmentComparison;
-  const comparisonRows: {
-    label: string;
-    annual?: number;
-    tone?: "anchor" | "emphasis" | "muted";
-    header?: boolean;
-  }[] = [
-    { label: "Net take-home (your goal)", annual: ec.targetNetAnnual, tone: "anchor" },
-    { label: "As a salaried employee", header: true },
-    { label: "Equivalent gross salary", annual: ec.employeeGross },
-    { label: "Employer contributions (+)", annual: ec.employerSocial },
-    { label: "Real employer cost", annual: ec.employerCost, tone: "emphasis" },
-    { label: "As a freelancer / self-employed", header: true },
-    { label: "Profit to match take-home", annual: ec.freelancerMatchNet, tone: "emphasis" },
-    { label: "↳ tax reserve", annual: ec.taxReserve, tone: "muted" },
-    { label: "↳ health + care reserve", annual: ec.healthCareReserve, tone: "muted" },
-    { label: "Profit to match full employment value", header: true },
-    { label: "incl. self-funded pension + safety", annual: ec.freelancerFullValueCost },
-    { label: "= total employer cost", annual: ec.freelancerFullValueEmployerCost },
-  ];
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-200 p-4 font-mono">
-      <div className="max-w-6xl mx-auto">
-        <div className="mb-6 border-b border-gray-800 pb-4">
-          <div className="flex items-center gap-3 mb-1">
-            <div className="w-2 h-2 bg-green-400 rounded-full shadow-lg shadow-green-400/50" />
-            <h1 className="text-xl font-semibold text-white">
+    <div className="min-h-screen bg-gray-950 text-gray-200 font-mono">
+      <div className="mx-auto max-w-4xl space-y-4 p-4 sm:p-6">
+        <header className="flex items-center gap-3 border-b border-gray-800 pb-4">
+          <div className="h-2 w-2 rounded-full bg-green-400 shadow-lg shadow-green-400/50" />
+          <div>
+            <h1 className="text-lg font-semibold text-white sm:text-xl">
               Kash's Income Tracker
             </h1>
+            <p className="text-xs text-gray-500">
+              Trading targets → German net pay (2026)
+            </p>
           </div>
-          <p className="text-gray-500 text-xs ml-5">Daily Targets Calculator</p>
-        </div>
+        </header>
+        {/* Inputs */}
+        <section className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-xs uppercase tracking-wider text-gray-500">
+              Targets
+            </h2>
+            <Segmented
+              value={mode}
+              onChange={setMode}
+              options={[
+                {
+                  value: "monthly",
+                  label: "Gross Monthly",
+                  active: "bg-green-500/15 text-green-400",
+                },
+                {
+                  value: "daily",
+                  label: "Gross Daily",
+                  active: "bg-green-500/15 text-green-400",
+                },
+                {
+                  value: "net",
+                  label: "Net Monthly",
+                  active: "bg-green-500/15 text-green-400",
+                },
+              ]}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {mode === "monthly" ? (
+              <NumField
+                label="Monthly Gross Profit"
+                value={monthlyTarget}
+                onChange={setMonthlyTarget}
+                accent
+              />
+            ) : mode === "daily" ? (
+              <NumField
+                label="Daily Gross Profit"
+                value={dailyTarget}
+                onChange={setDailyTarget}
+                accent
+              />
+            ) : (
+              <NumField
+                label="Monthly Net Income"
+                value={netTarget}
+                onChange={setNetTarget}
+                accent
+              />
+            )}
+            <NumField
+              label="Days per Week"
+              value={tradingDaysPerWeek}
+              onChange={setTradingDaysPerWeek}
+            />
+            <NumField
+              label="Accounts"
+              value={propFirmAccounts}
+              min={1}
+              onChange={(v) =>
+                setPropFirmAccounts(
+                  v === "" ? "" : String(Math.max(1, Math.floor(Number(v) || 1))),
+                )
+              }
+            />
+            <NumField
+              label="Hours per Day"
+              value={hoursPerDay}
+              onChange={setHoursPerDay}
+            />
+          </div>
+        </section>
 
-        <div className="flex flex-wrap gap-4">
-          {/* LEFT: Trading Calculator */}
-          <div className="flex-1 min-w-[320px] space-y-4">
-            <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
-              <div className="flex items-center justify-between mb-3">
-                <div className="text-xs uppercase tracking-wider text-gray-500">
-                  Targets
-                </div>
-                <div className="flex gap-1 bg-gray-950 rounded p-1">
-                  <button
-                    onClick={() => setMode("monthly")}
-                    className={`px-3 py-1 text-xs rounded transition-colors ${
-                      mode === "monthly"
-                        ? "bg-green-500/20 text-green-400"
-                        : "text-gray-500 hover:text-gray-300"
-                    }`}>
-                    Monthly →
-                  </button>
-                  <button
-                    onClick={() => setMode("daily")}
-                    className={`px-3 py-1 text-xs rounded transition-colors ${
-                      mode === "daily"
-                        ? "bg-blue-500/20 text-blue-400"
-                        : "text-gray-500 hover:text-gray-300"
-                    }`}>
-                    Daily →
-                  </button>
-                </div>
+        {/* HERO — gross → net, visible in every input mode */}
+        <section className="rounded-xl border border-green-500/20 bg-green-500/[0.05] p-5 sm:p-6">
+          <div className="grid grid-cols-3 divide-x divide-gray-700/60">
+            <div className="px-2 text-center">
+              <div className="text-[10px] uppercase tracking-wider text-gray-400">
+                Daily Gross
               </div>
-              <div className="flex flex-wrap gap-4">
-                {mode === "monthly" ? (
-                  <div>
-                    <label className="block text-xs text-green-400 mb-1">
-                      Monthly Target
-                    </label>
-                    <input
-                      type="number"
-                      value={monthlyTarget}
-                      onChange={(e) => setMonthlyTarget(e.target.value)}
-                      className="bg-gray-950 border border-green-500/30 rounded px-3 py-2 text-white text-base font-semibold text-center w-24 focus:outline-none focus:border-green-500"
-                    />
-                  </div>
-                ) : (
-                  <div>
-                    <label className="block text-xs text-blue-400 mb-1">
-                      Daily Target
-                    </label>
-                    <input
-                      type="number"
-                      value={dailyTarget}
-                      onChange={(e) => setDailyTarget(e.target.value)}
-                      className="bg-gray-950 border border-blue-500/30 rounded px-3 py-2 text-white text-base font-semibold text-center w-24 focus:outline-none focus:border-blue-500"
-                    />
-                  </div>
-                )}
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">
-                    Days/Week
-                  </label>
-                  <input
-                    type="number"
-                    value={tradingDaysPerWeek}
-                    onChange={(e) => setTradingDaysPerWeek(e.target.value)}
-                    className="bg-gray-950 border border-gray-800 rounded px-3 py-2 text-white text-base font-semibold text-center w-16 focus:outline-none focus:border-gray-600"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">
-                    Accounts
-                  </label>
-                  <input
-                    type="number"
-                    value={propFirmAccounts}
-                    onChange={(e) => setPropFirmAccounts(e.target.value)}
-                    className="bg-gray-950 border border-gray-800 rounded px-3 py-2 text-white text-base font-semibold text-center w-16 focus:outline-none focus:border-gray-600"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">
-                    Trades/Day
-                  </label>
-                  <input
-                    type="number"
-                    value={tradesPerDay}
-                    onChange={(e) => setTradesPerDay(e.target.value)}
-                    className="bg-gray-950 border border-gray-800 rounded px-3 py-2 text-white text-base font-semibold text-center w-16 focus:outline-none focus:border-gray-600"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">
-                    Hours/Day
-                  </label>
-                  <input
-                    type="number"
-                    value={hoursPerDay}
-                    onChange={(e) => setHoursPerDay(e.target.value)}
-                    className="bg-gray-950 border border-gray-800 rounded px-3 py-2 text-white text-base font-semibold text-center w-16 focus:outline-none focus:border-gray-600"
-                  />
-                </div>
+              <div className="mt-1 text-xl font-bold tabular-nums text-green-400 sm:text-3xl">
+                {eur(calculations.daily)}
+              </div>
+              <div className="mt-1 text-[10px] text-gray-500">
+                × {calculations.tradingDaysPerMonth} days
               </div>
             </div>
+            <div className="px-2 text-center">
+              <div className="text-[10px] uppercase tracking-wider text-gray-400">
+                Monthly Gross
+              </div>
+              <div className="mt-1 text-xl font-bold tabular-nums text-green-400 sm:text-3xl">
+                {eur(calculations.monthly)}
+              </div>
+              <div className="mt-1 text-[10px] text-gray-500">before tax</div>
+            </div>
+            <div className="px-2 text-center">
+              <div className="text-[10px] uppercase tracking-wider text-gray-400">
+                Monthly Net
+              </div>
+              <div className="mt-1 text-xl font-bold tabular-nums text-green-400 sm:text-3xl">
+                {eur(calculations.netMonthly)}
+              </div>
+              <div className="mt-1 text-[10px] text-gray-500">
+                after {calculations.effectiveTaxRate.toFixed(0)}% tax
+              </div>
+            </div>
+          </div>
+        </section>
 
-            <div className="bg-gradient-to-br from-green-500/10 to-blue-500/5 border border-green-500/20 rounded-lg p-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <div className="text-xs uppercase tracking-wider text-gray-500 mb-1">
-                    Annual
-                  </div>
-                  <div className="text-xl font-semibold text-green-400">
-                    {formatNumber(calculations.annual)}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs uppercase tracking-wider text-gray-500 mb-1">
-                    Weekly
-                  </div>
-                  <div className="text-xl font-semibold text-green-400">
-                    {formatNumber(calculations.weekly)}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs uppercase tracking-wider text-gray-500 mb-1">
-                    {mode === "daily" ? "Monthly (calc)" : "Daily"}
-                  </div>
+        {/* Secondary detail — neutral; tiles always fill the row evenly.
+            Whole-euro values keep large numbers from overflowing the tiles. */}
+        <section className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(140px,1fr))]">
+          {(parseFloat(propFirmAccounts) || 1) > 1 && (
+            <StatCard
+              label="Per Account"
+              value={eur(calculations.perAccount)}
+              sub={`× ${propFirmAccounts} accounts`}
+            />
+          )}
+          <StatCard
+            label="Hourly"
+            value={eur(calculations.hourlyRate)}
+            sub={`over ${hoursPerDay || 1}h`}
+          />
+          <StatCard label="Weekly" value={eur(calculations.weekly)} />
+          <StatCard label="Annual" value={eur(calculations.annual)} />
+        </section>
+        {/* Tax — gross → net */}
+        <section className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-xs uppercase tracking-wider text-gray-500">
+              Germany Tax 2026
+            </h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <Segmented
+                value={employmentMode}
+                onChange={setEmploymentMode}
+                options={[
+                  {
+                    value: "freelancer",
+                    label: "Freelance",
+                    active: "bg-gray-700 text-gray-100",
+                  },
+                  {
+                    value: "employed",
+                    label: "Employed",
+                    active: "bg-gray-700 text-gray-100",
+                  },
+                ]}
+              />
+              <Segmented
+                value={isMarried ? "married" : "single"}
+                onChange={(v) => setIsMarried(v === "married")}
+                options={[
+                  {
+                    value: "single",
+                    label: "Single",
+                    active: "bg-gray-700 text-gray-100",
+                  },
+                  {
+                    value: "married",
+                    label: "Married",
+                    active: "bg-gray-700 text-gray-100",
+                  },
+                ]}
+              />
+              <label className="flex cursor-pointer items-center gap-2">
+                <span className="text-xs text-gray-500">Church</span>
+                <div
+                  onClick={() => setHasChurchTax(!hasChurchTax)}
+                  className={`h-4 w-8 rounded-full transition-colors ${
+                    hasChurchTax ? "bg-green-500" : "bg-gray-700"
+                  }`}>
                   <div
-                    className={`text-2xl font-bold ${
-                      mode === "daily" ? "text-green-400" : "text-white"
-                    }`}>
-                    {formatNumber(
-                      mode === "daily"
-                        ? calculations.monthly
-                        : calculations.daily
-                    )}
-                  </div>
-                  <div className="text-xs text-gray-500">
-                    {calculations.tradingDaysPerMonth} days/mo
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs uppercase tracking-wider text-gray-500 mb-1">
-                    Per Account
-                  </div>
-                  <div className="text-2xl font-bold text-blue-400">
-                    {formatNumber(calculations.perAccount)}
-                  </div>
-                  <div className="text-xs text-gray-500">
-                    ×{propFirmAccounts || 1} accounts
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
-                <div className="text-xs uppercase tracking-wider text-gray-500 mb-2">
-                  Per Trade
-                </div>
-                <div className="text-2xl font-bold text-amber-400">
-                  {formatNumber(calculations.perTrade)}
-                </div>
-                <div className="text-xs text-gray-500">
-                  {tradesPerDay || 1}{" "}
-                  {(parseFloat(tradesPerDay) || 1) === 1 ? "trade" : "trades"}
-                  {(parseFloat(propFirmAccounts) || 1) > 1
-                    ? ` × ${propFirmAccounts} accounts`
-                    : ""}
-                </div>
-              </div>
-              <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
-                <div className="text-xs uppercase tracking-wider text-gray-500 mb-2">
-                  Hourly Rate
-                </div>
-                <div className="text-2xl font-bold text-purple-400">
-                  {formatNumber(calculations.hourlyRate)}
-                </div>
-                <div className="text-xs text-gray-500">
-                  {hoursPerDay || 1}h/day
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* RIGHT: Tax Calculator */}
-          <div className="flex-1 min-w-[400px] space-y-4">
-            <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                <div className="text-xs uppercase tracking-wider text-gray-500">
-                  Germany Tax (2026)
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="flex gap-1 bg-gray-950 rounded p-1">
-                    <button
-                      onClick={() => setEmploymentMode("freelancer")}
-                      className={`px-2 py-1 text-xs rounded transition-colors ${
-                        employmentMode === "freelancer"
-                          ? "bg-orange-500/20 text-orange-400"
-                          : "text-gray-500 hover:text-gray-300"
-                      }`}>
-                      Freelancer
-                    </button>
-                    <button
-                      onClick={() => setEmploymentMode("employed")}
-                      className={`px-2 py-1 text-xs rounded transition-colors ${
-                        employmentMode === "employed"
-                          ? "bg-blue-500/20 text-blue-400"
-                          : "text-gray-500 hover:text-gray-300"
-                      }`}>
-                      Employed IV
-                    </button>
-                  </div>
-                  <div className="flex gap-1 bg-gray-950 rounded p-1">
-                    <button
-                      onClick={() => setIsMarried(false)}
-                      className={`px-2 py-1 text-xs rounded transition-colors ${
-                        !isMarried
-                          ? "bg-gray-500/20 text-gray-300"
-                          : "text-gray-500 hover:text-gray-300"
-                      }`}>
-                      Single
-                    </button>
-                    <button
-                      onClick={() => setIsMarried(true)}
-                      className={`px-2 py-1 text-xs rounded transition-colors ${
-                        isMarried
-                          ? "bg-pink-500/20 text-pink-400"
-                          : "text-gray-500 hover:text-gray-300"
-                      }`}>
-                      Married
-                    </button>
-                  </div>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <span className="text-xs text-gray-500">Church</span>
-                    <div
-                      onClick={() => setHasChurchTax(!hasChurchTax)}
-                      className={`w-8 h-4 rounded-full transition-colors ${
-                        hasChurchTax ? "bg-purple-500" : "bg-gray-700"
-                      }`}>
-                      <div
-                        className={`w-4 h-4 rounded-full bg-white transition-transform ${
-                          hasChurchTax ? "translate-x-4" : "translate-x-0"
-                        }`}
-                      />
-                    </div>
-                  </label>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-4 mb-4">
-                <div>
-                  <div className="text-xs text-gray-500 mb-1">Gross Annual</div>
-                  <div className="text-xl font-bold text-white">
-                    €{formatNumber(calculations.annual)}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-gray-500 mb-1">
-                    Gross Monthly
-                  </div>
-                  <div className="text-xl font-bold text-white">
-                    €{formatNumber(calculations.monthly)}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-gray-500 mb-1">
-                    Effective Rate
-                  </div>
-                  <div className="text-xl font-bold text-red-400">
-                    {calculations.effectiveTaxRate.toFixed(1)}%
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-2 mb-4 text-sm">
-                <div className="flex text-xs text-gray-600 uppercase tracking-wider mb-1">
-                  <span className="flex-1">
-                    Taxes {isMarried && "(Splitting)"}
-                  </span>
-                  <span className="w-28 text-right">Annual</span>
-                  <span className="w-24 text-right">Monthly</span>
-                </div>
-                <div className="flex text-gray-400">
-                  <span className="flex-1">Income Tax</span>
-                  <span className="w-28 text-right whitespace-nowrap">
-                    −€{formatNumber(calculations.incomeTax)}
-                  </span>
-                  <span className="w-24 text-right whitespace-nowrap">
-                    −€{formatNumber(calculations.monthlyIncomeTax)}
-                  </span>
-                </div>
-                {calculations.solidaritySurcharge > 0 && (
-                  <div className="flex text-gray-400">
-                    <span className="flex-1">Solidarity</span>
-                    <span className="w-28 text-right whitespace-nowrap">
-                      −€{formatNumber(calculations.solidaritySurcharge)}
-                    </span>
-                    <span className="w-24 text-right whitespace-nowrap">
-                      −€{formatNumber(calculations.monthlySolidaritySurcharge)}
-                    </span>
-                  </div>
-                )}
-                {calculations.churchTax > 0 && (
-                  <div className="flex text-gray-400">
-                    <span className="flex-1">Church Tax</span>
-                    <span className="w-28 text-right whitespace-nowrap">
-                      −€{formatNumber(calculations.churchTax)}
-                    </span>
-                    <span className="w-24 text-right whitespace-nowrap">
-                      −€{formatNumber(calculations.monthlyChurchTax)}
-                    </span>
-                  </div>
-                )}
-
-                <div className="flex text-xs text-gray-600 uppercase tracking-wider mb-1 mt-3">
-                  <span className="flex-1">
-                    Social Security{" "}
-                    {employmentMode === "employed" && "(your 50%)"}
-                  </span>
-                  <span className="w-28 text-right">Annual</span>
-                  <span className="w-24 text-right">Monthly</span>
-                </div>
-                <div className="flex text-gray-400">
-                  <span className="flex-1">Health</span>
-                  <span className="w-28 text-right whitespace-nowrap">
-                    −€{formatNumber(calculations.annualHealthInsurance)}
-                  </span>
-                  <span className="w-24 text-right whitespace-nowrap">
-                    −€{formatNumber(calculations.monthlyHealthInsurance)}
-                  </span>
-                </div>
-                <div className="flex text-gray-400">
-                  <span className="flex-1">Care</span>
-                  <span className="w-28 text-right whitespace-nowrap">
-                    −€{formatNumber(calculations.annualCareInsurance)}
-                  </span>
-                  <span className="w-24 text-right whitespace-nowrap">
-                    −€{formatNumber(calculations.monthlyCareInsurance)}
-                  </span>
-                </div>
-                {employmentMode === "employed" && (
-                  <>
-                    <div className="flex text-gray-400">
-                      <span className="flex-1">Pension</span>
-                      <span className="w-28 text-right whitespace-nowrap">
-                        −€{formatNumber(calculations.annualPensionInsurance)}
-                      </span>
-                      <span className="w-24 text-right whitespace-nowrap">
-                        −€{formatNumber(calculations.monthlyPensionInsurance)}
-                      </span>
-                    </div>
-                    <div className="flex text-gray-400">
-                      <span className="flex-1">Unemployment</span>
-                      <span className="w-28 text-right whitespace-nowrap">
-                        −€
-                        {formatNumber(calculations.annualUnemploymentInsurance)}
-                      </span>
-                      <span className="w-24 text-right whitespace-nowrap">
-                        −€
-                        {formatNumber(
-                          calculations.monthlyUnemploymentInsurance
-                        )}
-                      </span>
-                    </div>
-                  </>
-                )}
-
-                <div className="flex text-gray-300 font-medium pt-2 border-t border-gray-800">
-                  <span className="flex-1">Total Deductions</span>
-                  <span className="w-28 text-right text-red-400 whitespace-nowrap">
-                    −€{formatNumber(calculations.totalDeductions)}
-                  </span>
-                  <span className="w-24 text-right text-red-400 whitespace-nowrap">
-                    −€{formatNumber(calculations.monthlyTotalDeductions)}
-                  </span>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 pt-3 border-t border-gray-800">
-                <div>
-                  <div className="text-xs text-gray-500 mb-1">Net Annual</div>
-                  <div className="text-2xl font-bold text-green-400">
-                    €{formatNumber(calculations.netAnnual)}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-gray-500 mb-1">Net Monthly</div>
-                  <div className="text-2xl font-bold text-green-400">
-                    €{formatNumber(calculations.netMonthly)}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-gradient-to-br from-emerald-500/10 to-cyan-500/5 border border-emerald-500/20 rounded-lg p-4">
-              <div className="text-xs uppercase tracking-wider text-gray-500 mb-3">
-                Disposable Income
-              </div>
-              <div className="flex flex-wrap gap-4 mb-4">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">
-                    Monthly Expenses
-                  </label>
-                  <input
-                    type="number"
-                    value={monthlyExpenses}
-                    onChange={(e) => setMonthlyExpenses(e.target.value)}
-                    className="bg-gray-950 border border-gray-800 rounded px-3 py-2 text-white text-base font-semibold text-center w-24 focus:outline-none focus:border-gray-600"
+                    className={`h-4 w-4 rounded-full bg-white transition-transform ${
+                      hasChurchTax ? "translate-x-4" : "translate-x-0"
+                    }`}
                   />
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <div className="text-xs text-gray-500 mb-1">
-                    Monthly Disposable
-                  </div>
-                  <div
-                    className={`text-2xl font-bold ${
-                      calculations.disposableMonthly >= 0
-                        ? "text-emerald-400"
-                        : "text-red-400"
-                    }`}>
-                    €{formatNumber(calculations.disposableMonthly)}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-gray-500 mb-1">
-                    Annual Savings
-                  </div>
-                  <div
-                    className={`text-2xl font-bold ${
-                      calculations.disposableAnnual >= 0
-                        ? "text-emerald-400"
-                        : "text-red-400"
-                    }`}>
-                    €{formatNumber(calculations.disposableAnnual)}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
-              <div className="text-xs uppercase tracking-wider text-gray-500 mb-3">
-                Income Comparison
-              </div>
-              <div className="space-y-1 text-sm">
-                <div className="flex text-xs text-gray-600 uppercase tracking-wider mb-2 px-2">
-                  <span className="flex-1">Gross/yr</span>
-                  <span className="flex-1 text-right">Gross/mo</span>
-                  <span className="flex-1 text-right">Net/mo</span>
-                  <span className="w-20 text-right">+Net</span>
-                  <span className="w-16 text-right">Rate</span>
-                </div>
-                {comparisonLevels.map((level, idx) => {
-                  const isCurrent = level.grossMonthly === calculations.monthly;
-                  const prevNet = idx > 0 ? comparisonLevels[idx - 1].netMonthly : null;
-                  const diff = prevNet !== null ? level.netMonthly - prevNet : null;
-                  return (
-                    <div
-                      key={idx}
-                      className={`flex py-1 px-2 rounded ${
-                        isCurrent
-                          ? "bg-green-500/10 border border-green-500/30"
-                          : ""
-                      }`}>
-                      <span
-                        className={`flex-1 ${
-                          isCurrent
-                            ? "text-green-400 font-semibold"
-                            : "text-gray-500"
-                        }`}>
-                        €{formatNumber(level.grossAnnual)}
-                      </span>
-                      <span
-                        className={`flex-1 text-right ${
-                          isCurrent
-                            ? "text-green-400 font-semibold"
-                            : "text-gray-500"
-                        }`}>
-                        €{formatNumber(level.grossMonthly)}
-                      </span>
-                      <span
-                        className={`flex-1 text-right ${
-                          isCurrent
-                            ? "text-green-400 font-semibold"
-                            : "text-gray-300"
-                        }`}>
-                        €{formatNumber(level.netMonthly)}
-                      </span>
-                      <span
-                        className={`w-20 text-right ${
-                          isCurrent
-                            ? "text-green-400 font-semibold"
-                            : "text-cyan-400"
-                        }`}>
-                        {diff !== null ? `+€${formatNumber(diff)}` : "—"}
-                      </span>
-                      <span
-                        className={`w-16 text-right ${
-                          isCurrent
-                            ? "text-green-400 font-semibold"
-                            : "text-gray-500"
-                        }`}>
-                        {level.rate.toFixed(1)}%
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
+              </label>
             </div>
           </div>
-        </div>
 
-        <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 mt-4">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
-            <div className="text-xs uppercase tracking-wider text-gray-500">
-              Employment vs Self-Employment
+          <div className="mb-4 flex flex-wrap items-baseline justify-between gap-x-3 text-sm">
+            <span className="text-gray-500">
+              Gross {eur(calculations.monthly)} monthly ·{" "}
+              {eur(calculations.annual)} yearly
+            </span>
+            <span className="text-gray-400">
+              {calculations.effectiveTaxRate.toFixed(1)}% to the state
+            </span>
+          </div>
+
+          <div className="space-y-2 text-sm">
+            <div className="flex gap-2 text-[10px] uppercase tracking-wider text-gray-600">
+              <span className="flex-1">Taxes {isMarried && "(splitting)"}</span>
+              <span className="w-24 text-right">Annual</span>
+              <span className="w-20 text-right">Monthly</span>
             </div>
-            <div className="text-xs text-gray-600">
-              {isMarried ? "Married" : "Single"}
-              {hasChurchTax ? " · Church" : ""} · target = net take-home
+            <DeductionRow
+              label="Income Tax"
+              annual={calculations.incomeTax}
+              monthly={calculations.monthlyIncomeTax}
+            />
+            {calculations.solidaritySurcharge > 0 && (
+              <DeductionRow
+                label="Solidarity"
+                annual={calculations.solidaritySurcharge}
+                monthly={calculations.monthlySolidaritySurcharge}
+              />
+            )}
+            {calculations.churchTax > 0 && (
+              <DeductionRow
+                label="Church Tax"
+                annual={calculations.churchTax}
+                monthly={calculations.monthlyChurchTax}
+              />
+            )}
+
+            <div className="flex gap-2 pt-2 text-[10px] uppercase tracking-wider text-gray-600">
+              <span className="flex-1">
+                Social {employmentMode === "employed" && "(your 50%)"}
+              </span>
+              <span className="w-24 text-right">Annual</span>
+              <span className="w-20 text-right">Monthly</span>
+            </div>
+            <DeductionRow
+              label="Health"
+              annual={calculations.annualHealthInsurance}
+              monthly={calculations.monthlyHealthInsurance}
+            />
+            <DeductionRow
+              label="Care"
+              annual={calculations.annualCareInsurance}
+              monthly={calculations.monthlyCareInsurance}
+            />
+            {employmentMode === "employed" && (
+              <>
+                <DeductionRow
+                  label="Pension"
+                  annual={calculations.annualPensionInsurance}
+                  monthly={calculations.monthlyPensionInsurance}
+                />
+                <DeductionRow
+                  label="Unemployment"
+                  annual={calculations.annualUnemploymentInsurance}
+                  monthly={calculations.monthlyUnemploymentInsurance}
+                />
+              </>
+            )}
+            <DeductionRow
+              label="Total Deductions"
+              annual={calculations.totalDeductions}
+              monthly={calculations.monthlyTotalDeductions}
+              strong
+            />
+
+            <div className="flex items-baseline gap-2 border-t border-gray-700 pt-2 font-semibold text-green-400">
+              <span className="flex-1">Net take-home</span>
+              <span className="w-24 whitespace-nowrap text-right tabular-nums">
+                {eur(calculations.netAnnual)}
+              </span>
+              <span className="w-20 whitespace-nowrap text-right tabular-nums">
+                {eur(calculations.netMonthly)}
+              </span>
             </div>
           </div>
-          <p className="text-xs text-gray-600 mb-4">
-            Treats your{" "}
-            <span className="text-green-400 font-semibold">
-              €{formatNumber(ec.targetNetMonthly)}/mo
-            </span>{" "}
-            target as desired take-home, then back-calculates what it really
-            costs as a salaried employee vs. what you'd need to earn
-            self-employed.
-          </p>
+        </section>
+        {/* Disposable — collapsible, like the sections below */}
+        <CollapsibleSection title="Disposable after expenses">
+          <label className="mb-3 flex items-center justify-between gap-3">
+            <span className="text-[10px] uppercase tracking-wider text-gray-500">
+              Monthly Expenses
+            </span>
+            <input
+              type="number"
+              value={monthlyExpenses}
+              onChange={(e) => setMonthlyExpenses(e.target.value)}
+              className="w-28 rounded border border-gray-800 bg-gray-950 px-3 py-1.5 text-center text-sm font-semibold text-white focus:border-gray-600 focus:outline-none"
+            />
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <StatCard
+              label="Monthly"
+              value={eur(calculations.disposableMonthly)}
+              accent={
+                calculations.disposableMonthly >= 0
+                  ? "text-green-400"
+                  : "text-red-400"
+              }
+            />
+            <StatCard
+              label="Annual Savings"
+              value={eur(calculations.disposableAnnual)}
+              accent={
+                calculations.disposableAnnual >= 0
+                  ? "text-green-400"
+                  : "text-red-400"
+              }
+            />
+          </div>
+        </CollapsibleSection>
 
+        {/* Other income levels — collapsed by default */}
+        <CollapsibleSection title="Other income levels">
           <div className="space-y-1 text-sm">
-            <div className="flex text-xs text-gray-600 uppercase tracking-wider mb-1">
-              <span className="flex-1">Figure</span>
-              <span className="w-32 text-right">Monthly</span>
-              <span className="w-32 text-right">Yearly</span>
+            <div className="flex gap-2 px-2 text-[10px] uppercase tracking-wider text-gray-600">
+              <span className="hidden flex-1 sm:inline">Gross/yr</span>
+              <span className="flex-1 text-right">Gross/mo</span>
+              <span className="flex-1 text-right">Net/mo</span>
+              <span className="w-16 text-right">Δ/mo</span>
+              <span className="w-10 text-right">Rate</span>
             </div>
-            {comparisonRows.map((r, i) =>
-              r.header ? (
+            {visibleLevels.map(({ level, idx, prevVisibleNet }) => {
+              const isCurrent = level.grossMonthly === calculations.monthly;
+              const diff =
+                prevVisibleNet !== null
+                  ? level.netMonthly - prevVisibleNet
+                  : null;
+              const base = isCurrent
+                ? "text-green-400 font-semibold"
+                : "text-gray-500";
+              return (
                 <div
-                  key={i}
-                  className="text-xs uppercase tracking-wider text-gray-500 pt-3 pb-1">
-                  {r.label}
-                </div>
-              ) : (
-                <div
-                  key={i}
-                  className={`flex py-1 px-2 rounded ${
-                    r.tone === "anchor"
-                      ? "bg-green-500/10 border border-green-500/30"
-                      : r.tone === "emphasis"
-                      ? "bg-gray-800/50"
+                  key={idx}
+                  className={`flex gap-2 rounded px-2 py-1 ${
+                    isCurrent
+                      ? "border border-green-500/30 bg-green-500/10"
                       : ""
                   }`}>
                   <span
-                    className={`flex-1 ${
-                      r.tone === "anchor"
-                        ? "text-green-400 font-semibold"
-                        : r.tone === "emphasis"
-                        ? "text-white font-semibold"
-                        : r.tone === "muted"
-                        ? "text-gray-600"
-                        : "text-gray-400"
-                    }`}>
-                    {r.label}
+                    className={`hidden flex-1 tabular-nums sm:inline ${base}`}>
+                    {eur(level.grossAnnual)}
+                  </span>
+                  <span className={`flex-1 text-right tabular-nums ${base}`}>
+                    {eur(level.grossMonthly)}
                   </span>
                   <span
-                    className={`w-32 text-right whitespace-nowrap ${
-                      r.tone === "anchor"
+                    className={`flex-1 text-right tabular-nums ${
+                      isCurrent
                         ? "text-green-400 font-semibold"
-                        : r.tone === "emphasis"
-                        ? "text-white font-semibold"
-                        : r.tone === "muted"
-                        ? "text-gray-600"
                         : "text-gray-300"
                     }`}>
-                    €{formatNumber((r.annual ?? 0) / 12)}
+                    {eur(level.netMonthly)}
                   </span>
                   <span
-                    className={`w-32 text-right whitespace-nowrap ${
-                      r.tone === "anchor"
-                        ? "text-green-400 font-semibold"
-                        : r.tone === "emphasis"
-                        ? "text-white font-semibold"
-                        : r.tone === "muted"
-                        ? "text-gray-600"
-                        : "text-gray-300"
+                    className={`w-16 text-right tabular-nums ${
+                      isCurrent ? "text-green-400" : "text-gray-500"
                     }`}>
-                    €{formatNumber(r.annual ?? 0)}
+                    {diff !== null ? `+${formatNumber(diff)}` : "—"}
+                  </span>
+                  <span className={`w-10 text-right tabular-nums ${base}`}>
+                    {level.rate.toFixed(0)}%
                   </span>
                 </div>
-              )
-            )}
+              );
+            })}
           </div>
-        </div>
+          {comparisonLevels.length > 3 && (
+            <button
+              onClick={() => setShowAllLevels((v) => !v)}
+              aria-expanded={showAllLevels}
+              className="mt-2 w-full rounded px-2 py-1.5 text-[11px] text-gray-500 transition-colors hover:bg-gray-800/50 hover:text-gray-300 focus-visible:outline focus-visible:outline-1 focus-visible:outline-gray-600">
+              {showAllLevels
+                ? "Show fewer"
+                : `Show all ${comparisonLevels.length} levels`}
+            </button>
+          )}
+        </CollapsibleSection>
+
+        {/* Employee vs Freelancer — collapsed by default */}
+        <CollapsibleSection title="Employee vs Freelancer">
+          <p className="text-xs leading-relaxed text-gray-500">
+            Same take-home of{" "}
+            <span className="font-semibold text-green-400">
+              {eur(ec.targetNetMonthly)}/mo
+            </span>{" "}
+            — two ways to earn it:
+          </p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div className="rounded border border-gray-800 p-3">
+              <div className="text-[10px] uppercase tracking-wider text-gray-500">
+                As an employee
+              </div>
+              <div className="mt-1 text-lg font-bold tabular-nums text-gray-100">
+                {eur(ec.employeeGross / 12)}
+                <span className="ml-1 text-xs font-normal text-gray-500">
+                  /mo gross
+                </span>
+              </div>
+              <div className="text-[11px] text-gray-500">
+                {eur(ec.employeeGross)}/yr salary
+              </div>
+              <div className="mt-1 text-[11px] text-gray-500">
+                Costs employer {eur(ec.employerCost / 12)}/mo
+              </div>
+            </div>
+            <div className="rounded border border-gray-800 p-3">
+              <div className="text-[10px] uppercase tracking-wider text-gray-500">
+                As a freelancer
+              </div>
+              <div className="mt-1 text-lg font-bold tabular-nums text-gray-100">
+                {eur(ec.freelancerMatchNet / 12)}
+                <span className="ml-1 text-xs font-normal text-gray-500">
+                  /mo profit
+                </span>
+              </div>
+              <div className="text-[11px] text-gray-500">
+                {eur(ec.freelancerMatchNet)}/yr invoiced
+              </div>
+              <div className="mt-1 text-[11px] text-gray-500">
+                Set aside {eur(ec.reserve / 12)}/mo (tax + health)
+              </div>
+            </div>
+          </div>
+        </CollapsibleSection>
       </div>
     </div>
   );
