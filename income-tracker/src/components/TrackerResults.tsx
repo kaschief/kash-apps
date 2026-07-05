@@ -186,10 +186,16 @@ export function TrackerResults({ model }: { model: IncomeTrackerModel }) {
           defaultOpen
           action={
             <span className="whitespace-nowrap text-[10px] normal-case tracking-normal text-gray-500 group-open:hidden">
-              {payout.cyclesUsed} payouts ·{" "}
+              {payout.cyclesUsed} {plural(payout.cyclesUsed, "payout")} ·{" "}
               <span className={planAccent}>
                 {eur0(fromUsd(payout.totalCash))} received
               </span>
+              {payout.shortfall > 0 && (
+                <span className="text-red-400">
+                  {" "}
+                  · {eur0(fromUsd(payout.shortfall))} short
+                </span>
+              )}
             </span>
           }>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -219,6 +225,16 @@ export function TrackerResults({ model }: { model: IncomeTrackerModel }) {
               a payout unlocks every {minQualifyingDays} winning days
             </span>
           </div>
+          {!payout.checks.valid && (
+            <div className="mb-3 rounded-md border border-red-500/30 bg-red-500/[0.07] px-3 py-2 text-[11px] leading-relaxed text-red-300">
+              <span className="font-semibold">
+                This plan doesn't fully reach your target yet.
+              </span>{" "}
+              {payout.shortfall > 0
+                ? `These payouts deliver ${eur0(fromUsd(payout.totalCash))} of your ${eur0(fromUsd(payout.incomeTarget))} goal — ${eur0(fromUsd(payout.shortfall))} short. ${payout.accountsNeeded} ${plural(payout.accountsNeeded, "account")} can release at most ${eur0(fromUsd(payout.maxCash))}; add accounts (section 6) or raise the payout cap.`
+                : "It breaks a firm rule — see Rule Check below for which one and how to fix it."}
+            </div>
+          )}
           {(() => {
             // Visual accounting: where each account's monthly earnings go.
             const earn = payout.perAccountEarnBuild;
