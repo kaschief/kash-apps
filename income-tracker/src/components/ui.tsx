@@ -27,13 +27,19 @@ export function SectionHeader({
 export function FormSection({
   title,
   action,
+  summary,
   children,
-}: SectionHeaderProps & { children: ReactNode }) {
+}: SectionHeaderProps & { summary?: ReactNode; children: ReactNode }) {
   return (
-    <section className="rounded-xl border border-gray-800 bg-gray-900 p-4">
-      <SectionHeader title={title} action={action} />
+    <CollapsibleSection
+      title={title}
+      defaultOpen
+      action={
+        summary ? <span className="group-open:hidden">{summary}</span> : null
+      }>
+      {action ? <div className="mb-3 flex justify-end">{action}</div> : null}
       {children}
-    </section>
+    </CollapsibleSection>
   );
 }
 
@@ -63,7 +69,11 @@ type NumberFieldProps = {
   max?: number;
   hint?: string;
   allowEmpty?: boolean;
+  currency?: "EUR" | "USD";
 };
+
+export const normalizeNumberInput = (value: string) =>
+  value.replace(/^(-?)0+(?=\d)/, "$1");
 
 export function NumberField({
   label,
@@ -74,6 +84,7 @@ export function NumberField({
   max,
   hint,
   allowEmpty = false,
+  currency,
 }: NumberFieldProps) {
   const clamp = () => {
     if (allowEmpty && value.trim() === "") return;
@@ -94,15 +105,22 @@ export function NumberField({
         {label}
       </span>
       <span className="relative mt-1 block">
+        {currency ? (
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 left-3 z-10 flex items-center text-xs text-gray-600">
+            {currency === "EUR" ? "€" : "$"}
+          </span>
+        ) : null}
         <input
           type="number"
           inputMode="decimal"
           min={min}
           max={max}
           value={value}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={(event) => onChange(normalizeNumberInput(event.target.value))}
           onBlur={clamp}
-          className={`number-input h-10 w-full rounded border bg-gray-950 px-3 pr-8 text-center text-base font-semibold tabular-nums text-white focus:outline-none ${
+          className={`number-input h-10 w-full rounded border bg-gray-950 pr-8 text-center text-base font-semibold tabular-nums text-white focus:outline-none ${currency ? "pl-8" : "pl-3"} ${
             accent
               ? "border-green-500/40 focus:border-green-500"
               : "border-gray-800 focus:border-gray-600"
@@ -167,24 +185,75 @@ export function Segmented<T extends string>({
 export function CollapsibleSection({
   title,
   defaultOpen = false,
+  action,
+  className = "border-gray-800 bg-gray-900",
   children,
 }: {
   title: string;
   defaultOpen?: boolean;
+  action?: ReactNode;
+  className?: string;
   children: ReactNode;
 }) {
   return (
     <details
       open={defaultOpen}
-      className="group rounded-xl border border-gray-800 bg-gray-900">
+      className={`group rounded-xl border ${className}`}>
       <summary className="flex cursor-pointer list-none items-center justify-between p-4 text-xs uppercase tracking-wider text-gray-500 hover:text-gray-300 focus-visible:outline focus-visible:outline-1 focus-visible:outline-gray-600 [&::-webkit-details-marker]:hidden">
         <span>{title}</span>
-        <span className="text-gray-600 transition-transform group-open:rotate-90">
-          ▸
+        <span className="flex items-center gap-3">
+          {action}
+          <span className="text-gray-600 transition-transform group-open:rotate-90">
+            ▸
+          </span>
         </span>
       </summary>
       <div className="px-4 pb-4">{children}</div>
     </details>
+  );
+}
+
+// One headline tile in the "3 · The Plan" grid. `highlight` gives the amber
+// "target" treatment; every tile shares one padding/typography contract so the
+// row stays perfectly aligned.
+export function PlanStat({
+  label,
+  value,
+  sub,
+  valueClass = "text-white",
+  highlight = false,
+}: {
+  label: ReactNode;
+  value: ReactNode;
+  sub?: ReactNode;
+  valueClass?: string;
+  highlight?: boolean;
+}) {
+  return (
+    <div
+      className={`px-2 py-2.5 text-center ${
+        highlight
+          ? "rounded-lg bg-amber-400/[0.06] ring-1 ring-inset ring-amber-400/25"
+          : ""
+      }`}>
+      <div
+        className={`text-[10px] uppercase tracking-wider sm:mb-1 ${
+          highlight ? "text-amber-300/90" : "text-gray-400"
+        }`}>
+        {label}
+      </div>
+      <div
+        className={`mt-0.5 text-xl font-bold tabular-nums sm:mt-0 sm:text-3xl ${
+          highlight ? "tracking-tight" : ""
+        } ${valueClass}`}>
+        {value}
+      </div>
+      {sub != null ? (
+        <div className="mt-0.5 text-[10px] leading-tight text-gray-500 sm:mt-1">
+          {sub}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -236,10 +305,10 @@ export function DeductionRow({
       }`}>
       <span className="flex-1 truncate">{label}</span>
       <span className={`w-24 whitespace-nowrap text-right tabular-nums ${numberColor}`}>
-        −€{format(annual)}
+        −{format(annual)}
       </span>
       <span className={`w-20 whitespace-nowrap text-right tabular-nums ${numberColor}`}>
-        −€{format(monthly)}
+        −{format(monthly)}
       </span>
     </div>
   );

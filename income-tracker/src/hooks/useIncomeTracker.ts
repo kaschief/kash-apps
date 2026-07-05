@@ -1,8 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  BUFFER_PCT_OF_ACCOUNT,
   FIRM_PRESETS,
-  QUALIFYING_DAY_PCT,
   RISK_BANDS,
   computeBreakdown,
   computeEmployerSocial,
@@ -11,6 +9,9 @@ import {
 } from "../lib/domain";
 
 export function useIncomeTracker() {
+  const [currency, setCurrency] = useState<"EUR" | "USD">("EUR");
+  const [eurUsdRate, setEurUsdRate] = useState<number | null>(null);
+  const [rateDate, setRateDate] = useState("");
   const [mode, setMode] = useState<"gross" | "net">("gross");
   const [monthlyTarget, setMonthlyTarget] = useState("9000");
   const [netTarget, setNetTarget] = useState("4500");
@@ -31,19 +32,55 @@ export function useIncomeTracker() {
 
   const [accountSize, setAccountSize] = useState("50000");
   const [payoutSplitPct, setPayoutSplitPct] = useState("90");
+  const [profitReleasePct, setProfitReleasePct] = useState("50");
   const [maxPayoutPerAccount, setMaxPayoutPerAccount] = useState("2000");
   const [minQualifyingDays, setMinQualifyingDays] = useState("5");
-  const [minProfitPerDay, setMinProfitPerDay] = useState("250");
+  const [minProfitPerDay, setMinProfitPerDay] = useState("150");
+  const [minCycleProfit, setMinCycleProfit] = useState("1");
   const [bufferPerAccount, setBufferPerAccount] = useState("1000");
 
-  const applyPreset = (p: (typeof FIRM_PRESETS)[number]) => {
+  useEffect(() => {
+    fetch("https://api.frankfurter.dev/v1/latest?base=EUR&symbols=USD")
+      .then((response) => {
+        if (!response.ok) throw new Error("Exchange-rate request failed");
+        return response.json() as Promise<{ date: string; rates: { USD: number } }>;
+      })
+      .then((data) => {
+        setEurUsdRate(data.rates.USD);
+        setRateDate(data.date);
+      })
+      .catch(() => setEurUsdRate(null));
+  }, []);
+
+  const changeCurrency = (next: "EUR" | "USD") => {
+    if (next === currency || !eurUsdRate) return;
+    const factor = next === "USD" ? eurUsdRate : 1 / eurUsdRate;
+    const convert = (value: string, setter: (value: string) => void) => {
+      if (value === "") return;
+      setter(String(Math.round((Number(value) * factor + Number.EPSILON) * 100) / 100));
+    };
+    [
+      [monthlyTarget, setMonthlyTarget], [netTarget, setNetTarget],
+      [monthlyExpenses, setMonthlyExpenses],
+    ].forEach(([value, setter]) => convert(value as string, setter as (value: string) => void));
+    setCurrency(next);
+  };
+
+  const applyPreset = (p: {
+    accountSize: number;
+    maxPayout: number;
+    minDailyProfit: number;
+    bufferPerAccount: number;
+  }) => {
     setAccountSize(String(p.accountSize));
     setMaxPayoutPerAccount(String(p.maxPayout));
-    setBufferPerAccount(String(p.accountSize * BUFFER_PCT_OF_ACCOUNT));
-    setMinProfitPerDay(String(p.accountSize * QUALIFYING_DAY_PCT));
+    setMinProfitPerDay(String(p.minDailyProfit));
+    setBufferPerAccount(String(p.bufferPerAccount));
   };
 
   const calculations = useMemo(() => {
+    const toEur = (value: number) => currency === "USD" ? value / (eurUsdRate ?? 1) : value;
+    const fromEur = (value: number) => currency === "USD" ? value * (eurUsdRate ?? 1) : value;
     const hours = parseFloat(hoursPerDay) || 1;
     const tradingDaysPerMonth = Math.min(
       23,
@@ -54,13 +91,13 @@ export function useIncomeTracker() {
     if (mode === "gross") {
       monthly = parseFloat(monthlyTarget) || 0;
     } else {
-      const desiredNetMonthly = parseFloat(netTarget) || 0;
+      const desiredNetMonthly = toEur(parseFloat(netTarget) || 0);
       monthly =
-        solveGrossForNet(desiredNetMonthly * 12, {
+        fromEur(solveGrossForNet(desiredNetMonthly * 12, {
           isFreelancer: employmentMode === "freelancer",
           married: isMarried,
           church: hasChurchTax,
-        }) / 12;
+        }) / 12);
     }
     const daily = tradingDaysPerMonth > 0 ? monthly / tradingDaysPerMonth : 0;
 
@@ -68,23 +105,23 @@ export function useIncomeTracker() {
     const weekly = (monthly * 12) / 52;
     const hourlyRate = hours > 0 ? daily / hours : 0;
 
-    const grossAnnual = annual;
+    const grossAnnual = toEur(annual);
     const b = computeBreakdown(grossAnnual, {
       isFreelancer: employmentMode === "freelancer",
       married: isMarried,
       church: hasChurchTax,
     });
 
-    const annualHealthInsurance = b.healthInsurance;
-    const annualCareInsurance = b.careInsurance;
-    const annualPensionInsurance = b.pensionInsurance;
-    const annualUnemploymentInsurance = b.unemploymentInsurance;
-    const totalSocialSecurity = b.totalSocial;
-    const incomeTax = b.incomeTax;
-    const solidaritySurcharge = b.soli;
-    const churchTax = b.churchTax;
-    const totalDeductions = b.totalDeductions;
-    const netAnnual = b.netAnnual;
+    const annualHealthInsurance = fromEur(b.healthInsurance);
+    const annualCareInsurance = fromEur(b.careInsurance);
+    const annualPensionInsurance = fromEur(b.pensionInsurance);
+    const annualUnemploymentInsurance = fromEur(b.unemploymentInsurance);
+    const totalSocialSecurity = fromEur(b.totalSocial);
+    const incomeTax = fromEur(b.incomeTax);
+    const solidaritySurcharge = fromEur(b.soli);
+    const churchTax = fromEur(b.churchTax);
+    const totalDeductions = fromEur(b.totalDeductions);
+    const netAnnual = fromEur(b.netAnnual);
     const netMonthly = netAnnual / 12;
     const effectiveTaxRate = b.effectiveRate;
 
@@ -141,6 +178,8 @@ export function useIncomeTracker() {
     monthlyExpenses,
     employmentMode,
     isMarried,
+    currency,
+    eurUsdRate,
   ]);
 
   const comparisonLevels = useMemo(() => {
@@ -159,20 +198,25 @@ export function useIncomeTracker() {
     ];
     const unique = [...new Set(levels)];
     return unique.map((grossMonthly) => {
-      const b = computeBreakdown(grossMonthly * 12, {
+      const grossMonthlyEur =
+        currency === "USD" ? grossMonthly / (eurUsdRate ?? 1) : grossMonthly;
+      const b = computeBreakdown(grossMonthlyEur * 12, {
         isFreelancer: employmentMode === "freelancer",
         married: isMarried,
         church: hasChurchTax,
       });
       return {
         grossMonthly,
-        netMonthly: b.netAnnual / 12,
-        grossAnnual: b.grossAnnual,
-        netAnnual: b.netAnnual,
+        netMonthly:
+          (currency === "USD" ? b.netAnnual * (eurUsdRate ?? 1) : b.netAnnual) / 12,
+        grossAnnual:
+          currency === "USD" ? b.grossAnnual * (eurUsdRate ?? 1) : b.grossAnnual,
+        netAnnual:
+          currency === "USD" ? b.netAnnual * (eurUsdRate ?? 1) : b.netAnnual,
         rate: b.effectiveRate,
       };
     });
-  }, [calculations.monthly, employmentMode, isMarried, hasChurchTax]);
+  }, [calculations.monthly, employmentMode, isMarried, hasChurchTax, currency, eurUsdRate]);
 
   const currentLevelIdx = comparisonLevels.findIndex(
     (l) => l.grossMonthly === calculations.monthly,
@@ -188,7 +232,8 @@ export function useIncomeTracker() {
 
   const employmentComparison = useMemo(() => {
     const targetNetMonthly = calculations.netMonthly;
-    const targetNetAnnual = targetNetMonthly * 12;
+    const targetNetAnnual =
+      (currency === "USD" ? targetNetMonthly / (eurUsdRate ?? 1) : targetNetMonthly) * 12;
     const married = isMarried;
     const church = hasChurchTax;
 
@@ -213,26 +258,33 @@ export function useIncomeTracker() {
 
     return {
       targetNetMonthly,
-      employeeGross,
-      employerCost,
-      freelancerMatchNet,
-      reserve,
+      employeeGross:
+        currency === "USD" ? employeeGross * (eurUsdRate ?? 1) : employeeGross,
+      employerCost:
+        currency === "USD" ? employerCost * (eurUsdRate ?? 1) : employerCost,
+      freelancerMatchNet:
+        currency === "USD" ? freelancerMatchNet * (eurUsdRate ?? 1) : freelancerMatchNet,
+      reserve: currency === "USD" ? reserve * (eurUsdRate ?? 1) : reserve,
     };
-  }, [calculations.netMonthly, isMarried, hasChurchTax]);
+  }, [calculations.netMonthly, isMarried, hasChurchTax, currency, eurUsdRate]);
 
   const ec = employmentComparison;
 
   const payout = useMemo(
     () =>
       computePayoutPlan(
-        calculations.monthly,
+        currency === "EUR"
+          ? calculations.monthly * (eurUsdRate ?? 1)
+          : calculations.monthly,
         calculations.tradingDaysPerMonth,
         {
           accountSize: parseFloat(accountSize) || 0,
           profitSplit: (parseFloat(payoutSplitPct) || 0) / 100,
+          profitReleaseRate: (parseFloat(profitReleasePct) || 0) / 100,
           maxPayoutPerAccount: parseFloat(maxPayoutPerAccount) || 0,
           minQualifyingDays: parseFloat(minQualifyingDays) || 0,
           minProfitPerQualifyingDay: parseFloat(minProfitPerDay) || 0,
+          minCycleProfit: parseFloat(minCycleProfit) || 0,
           bufferPerAccount: parseFloat(bufferPerAccount) || 0,
         },
         {
@@ -245,12 +297,16 @@ export function useIncomeTracker() {
       calculations.tradingDaysPerMonth,
       accountSize,
       payoutSplitPct,
+      profitReleasePct,
       maxPayoutPerAccount,
       minQualifyingDays,
       minProfitPerDay,
+      minCycleProfit,
       bufferPerAccount,
       accountsOverride,
       dailyPaceInput,
+      currency,
+      eurUsdRate,
     ],
   );
 
@@ -259,7 +315,62 @@ export function useIncomeTracker() {
       ? RISK_BANDS.find((b) => payout.dailyRiskPct <= b.max) ??
         RISK_BANDS[RISK_BANDS.length - 1]
       : null;
+
+  // Fast-paced projection for an arbitrary account count — powers the accounts
+  // stepper so dialing accounts up/down applies that count AND its fastest pace.
+  const fastPaceForAccounts = (n: number) => {
+    const accounts = Math.max(1, Math.floor(n));
+    const targetUsd =
+      currency === "EUR"
+        ? calculations.monthly * (eurUsdRate ?? 1)
+        : calculations.monthly;
+    const rules = {
+      accountSize: parseFloat(accountSize) || 0,
+      profitSplit: (parseFloat(payoutSplitPct) || 0) / 100,
+      profitReleaseRate: (parseFloat(profitReleasePct) || 0) / 100,
+      maxPayoutPerAccount: parseFloat(maxPayoutPerAccount) || 0,
+      minQualifyingDays: parseFloat(minQualifyingDays) || 0,
+      minProfitPerQualifyingDay: parseFloat(minProfitPerDay) || 0,
+      minCycleProfit: parseFloat(minCycleProfit) || 0,
+      bufferPerAccount: parseFloat(bufferPerAccount) || 0,
+    };
+    const base = computePayoutPlan(
+      targetUsd,
+      calculations.tradingDaysPerMonth,
+      rules,
+      { accounts },
+    );
+    if (base.status !== "ok") return null;
+    const dailyTarget = Math.ceil(base.fastTrackDaily);
+    const paced = computePayoutPlan(
+      targetUsd,
+      calculations.tradingDaysPerMonth,
+      rules,
+      { accounts, dailyTarget },
+    );
+    const completionDay =
+      paced.status === "ok" && paced.payoutEvents.length > 0
+        ? Math.max(...paced.payoutEvents.map((e) => e.day))
+        : 0;
+    const dailyRiskPct =
+      rules.accountSize > 0 ? (dailyTarget / rules.accountSize) * 100 : 0;
+    const riskBand =
+      RISK_BANDS.find((b) => dailyRiskPct <= b.max) ??
+      RISK_BANDS[RISK_BANDS.length - 1];
+    return {
+      accounts,
+      dailyTarget,
+      completionDay,
+      payouts: base.cyclesUsed,
+      shortfall: base.shortfall,
+      riskLabel: riskBand.label,
+    };
+  };
   return {
+    currency,
+    changeCurrency,
+    eurUsdRate,
+    rateDate,
     mode,
     setMode,
     monthlyTarget,
@@ -286,12 +397,16 @@ export function useIncomeTracker() {
     setAccountSize,
     payoutSplitPct,
     setPayoutSplitPct,
+    profitReleasePct,
+    setProfitReleasePct,
     maxPayoutPerAccount,
     setMaxPayoutPerAccount,
     minQualifyingDays,
     setMinQualifyingDays,
     minProfitPerDay,
     setMinProfitPerDay,
+    minCycleProfit,
+    setMinCycleProfit,
     bufferPerAccount,
     setBufferPerAccount,
     setAccountsOverride,
@@ -303,6 +418,7 @@ export function useIncomeTracker() {
     ec,
     payout,
     riskBand,
+    fastPaceForAccounts,
   };
 }
 

@@ -5,9 +5,19 @@ import {
   Segmented,
 } from "./ui";
 
+const money = (value: string | number, code: "EUR" | "USD") =>
+  `${code === "EUR" ? "€" : "$"}${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(Number(value) || 0)}`;
+
+const compactMoney = (value: string | number, code: "EUR" | "USD") =>
+  `${code === "EUR" ? "€" : "$"}${new Intl.NumberFormat("en-US", {
+    notation: "compact",
+    maximumFractionDigits: 0,
+  }).format(Number(value) || 0)}`;
+
 type IncomeMode = "gross" | "net";
 
 type IncomeGoalSectionProps = {
+  currency: "EUR" | "USD";
   mode: IncomeMode;
   onModeChange: (mode: IncomeMode) => void;
   monthlyTarget: string;
@@ -23,6 +33,7 @@ type IncomeGoalSectionProps = {
 };
 
 export function IncomeGoalSection({
+  currency,
   mode,
   onModeChange,
   monthlyTarget,
@@ -39,6 +50,14 @@ export function IncomeGoalSection({
   return (
     <FormSection
       title="1 · Income Goal"
+      summary={
+        <span className="whitespace-nowrap text-[10px] normal-case tracking-normal text-gray-500">
+          <span className="text-green-400">
+            {money(mode === "gross" ? monthlyTarget : netTarget, currency)} {mode}
+          </span>{" "}
+          · {tradingDays} days · {hoursPerDay}h/day
+        </span>
+      }
       action={
         <Segmented
           label="Income target type"
@@ -65,6 +84,7 @@ export function IncomeGoalSection({
             hint="cash withdrawn from payouts, before German tax"
             value={monthlyTarget}
             onChange={onMonthlyTargetChange}
+            currency={currency}
             accent
             min={0}
           />
@@ -74,6 +94,7 @@ export function IncomeGoalSection({
             hint="after German tax — gross is back-solved"
             value={netTarget}
             onChange={onNetTargetChange}
+            currency={currency}
             accent
             min={0}
           />
@@ -95,10 +116,11 @@ export function IncomeGoalSection({
           max={24}
         />
         <NumberField
-          label="My Daily Target"
-          hint="optional — blank lets the plan set the pace"
+          label="My Daily Target (USD)"
+          hint="optional firm-account pace — always USD"
           value={dailyTarget}
           onChange={onDailyTargetChange}
+          currency="USD"
           min={0}
           allowEmpty
         />
@@ -111,9 +133,12 @@ export type FirmPreset = {
   readonly label: string;
   readonly accountSize: number;
   readonly maxPayout: number;
+  readonly minDailyProfit: number;
+  readonly bufferPerAccount: number;
 };
 
 type FirmRulesSectionProps = {
+  currency: "EUR" | "USD";
   presets: readonly FirmPreset[];
   activeAccountSize: number;
   onPresetSelect: (preset: FirmPreset) => void;
@@ -121,17 +146,22 @@ type FirmRulesSectionProps = {
   onAccountSizeChange: (value: string) => void;
   payoutSplitPct: string;
   onPayoutSplitPctChange: (value: string) => void;
+  profitReleasePct: string;
+  onProfitReleasePctChange: (value: string) => void;
   maxPayout: string;
   onMaxPayoutChange: (value: string) => void;
   minWinningDays: string;
   onMinWinningDaysChange: (value: string) => void;
   minProfitPerDay: string;
   onMinProfitPerDayChange: (value: string) => void;
+  minCycleProfit: string;
+  onMinCycleProfitChange: (value: string) => void;
   bufferPerAccount: string;
   onBufferPerAccountChange: (value: string) => void;
 };
 
 export function FirmRulesSection({
+  currency,
   presets,
   activeAccountSize,
   onPresetSelect,
@@ -139,12 +169,16 @@ export function FirmRulesSection({
   onAccountSizeChange,
   payoutSplitPct,
   onPayoutSplitPctChange,
+  profitReleasePct,
+  onProfitReleasePctChange,
   maxPayout,
   onMaxPayoutChange,
   minWinningDays,
   onMinWinningDaysChange,
   minProfitPerDay,
   onMinProfitPerDayChange,
+  minCycleProfit,
+  onMinCycleProfitChange,
   bufferPerAccount,
   onBufferPerAccountChange,
 }: FirmRulesSectionProps) {
@@ -171,13 +205,22 @@ export function FirmRulesSection({
   );
 
   return (
-    <FormSection title="2 · Prop Firm Rules" action={presetPicker}>
-      <FieldGrid columns={3}>
+    <FormSection
+      title="2 · Prop Firm Rules"
+      action={presetPicker}
+      summary={
+        <span className="whitespace-nowrap text-[10px] normal-case tracking-normal text-gray-500">
+          {compactMoney(accountSize, currency)} · {payoutSplitPct}% split ·{" "}
+          {profitReleasePct}% available · {money(maxPayout, currency)} max
+        </span>
+      }>
+      <FieldGrid columns={4}>
         <NumberField
           label="Account Size"
           hint="starting balance of one account"
           value={accountSize}
           onChange={onAccountSizeChange}
+          currency="USD"
           min={25000}
         />
         <NumberField
@@ -189,10 +232,19 @@ export function FirmRulesSection({
           max={100}
         />
         <NumberField
+          label="Profit Available %"
+          hint="share of cycle profit available to withdraw"
+          value={profitReleasePct}
+          onChange={onProfitReleasePctChange}
+          min={1}
+          max={100}
+        />
+        <NumberField
           label="Max Payout / Request"
           hint="profit withdrawable per account, per payout"
           value={maxPayout}
           onChange={onMaxPayoutChange}
+          currency="USD"
           min={0}
         />
         <NumberField
@@ -207,6 +259,15 @@ export function FirmRulesSection({
           hint="a day only counts if it makes at least this"
           value={minProfitPerDay}
           onChange={onMinProfitPerDayChange}
+          currency="USD"
+          min={0}
+        />
+        <NumberField
+          label="Min Cycle Profit"
+          hint="net profit required between payout requests"
+          value={minCycleProfit}
+          onChange={onMinCycleProfitChange}
+          currency="USD"
           min={0}
         />
         <NumberField
@@ -214,6 +275,7 @@ export function FirmRulesSection({
           hint="profit left in the account as drawdown cushion"
           value={bufferPerAccount}
           onChange={onBufferPerAccountChange}
+          currency="USD"
           min={0}
         />
       </FieldGrid>

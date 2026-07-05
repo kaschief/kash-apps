@@ -1,4 +1,7 @@
 import { FirmRulesSection, IncomeGoalSection } from "./components/SetupSections";
+import { CurrencySwitch } from "./components/CurrencySwitch";
+import { IncomeOverview } from "./components/IncomeOverview";
+import { PlanSummary } from "./components/PlanSummary";
 import { TrackerResults } from "./components/TrackerResults";
 import { useIncomeTracker } from "./hooks/useIncomeTracker";
 
@@ -21,12 +24,16 @@ export default function IncomeTracker() {
     setAccountSize,
     payoutSplitPct,
     setPayoutSplitPct,
+    profitReleasePct,
+    setProfitReleasePct,
     maxPayoutPerAccount,
     setMaxPayoutPerAccount,
     minQualifyingDays,
     setMinQualifyingDays,
     minProfitPerDay,
     setMinProfitPerDay,
+    minCycleProfit,
+    setMinCycleProfit,
     bufferPerAccount,
     setBufferPerAccount,
     applyPreset,
@@ -46,7 +53,9 @@ export default function IncomeTracker() {
             </p>
           </div>
         </header>
+        <div className="flex justify-end"><CurrencySwitch model={model} /></div>
         <IncomeGoalSection
+          currency={model.currency}
           mode={mode}
           onModeChange={setMode}
           monthlyTarget={monthlyTarget}
@@ -61,7 +70,12 @@ export default function IncomeTracker() {
           onDailyTargetChange={setDailyPaceInput}
         />
 
+        <IncomeOverview model={model} />
+
+        <PlanSummary model={model} />
+
         <FirmRulesSection
+          currency="USD"
           presets={firmPresets}
           activeAccountSize={Number.parseFloat(accountSize)}
           onPresetSelect={applyPreset}
@@ -69,12 +83,16 @@ export default function IncomeTracker() {
           onAccountSizeChange={setAccountSize}
           payoutSplitPct={payoutSplitPct}
           onPayoutSplitPctChange={setPayoutSplitPct}
+          profitReleasePct={profitReleasePct}
+          onProfitReleasePctChange={setProfitReleasePct}
           maxPayout={maxPayoutPerAccount}
           onMaxPayoutChange={setMaxPayoutPerAccount}
           minWinningDays={minQualifyingDays}
           onMinWinningDaysChange={setMinQualifyingDays}
           minProfitPerDay={minProfitPerDay}
           onMinProfitPerDayChange={setMinProfitPerDay}
+          minCycleProfit={minCycleProfit}
+          onMinCycleProfitChange={setMinCycleProfit}
           bufferPerAccount={bufferPerAccount}
           onBufferPerAccountChange={setBufferPerAccount}
         />

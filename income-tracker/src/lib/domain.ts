@@ -1,4 +1,3 @@
-
 const TAX_FREE_ALLOWANCE = 12348;
 const ZONE_2_END = 17443;
 const ZONE_3_END = 69000;
@@ -75,7 +74,10 @@ interface Breakdown {
   effectiveRate: number;
 }
 
-export function computeBreakdown(grossAnnual: number, opts: TaxOpts): Breakdown {
+export function computeBreakdown(
+  grossAnnual: number,
+  opts: TaxOpts,
+): Breakdown {
   const healthCareBase = Math.min(grossAnnual, HEALTH_INSURANCE_CEILING);
   const pensionBase = Math.min(grossAnnual, PENSION_INSURANCE_CEILING);
 
@@ -135,7 +137,10 @@ export function computeEmployerSocial(grossAnnual: number): number {
   );
 }
 
-export function solveGrossForNet(targetNetAnnual: number, opts: TaxOpts): number {
+export function solveGrossForNet(
+  targetNetAnnual: number,
+  opts: TaxOpts,
+): number {
   if (targetNetAnnual <= 0) return 0;
   let lo = 0;
   let hi = Math.max(targetNetAnnual * 2, 50000);
@@ -154,25 +159,47 @@ export function solveGrossForNet(targetNetAnnual: number, opts: TaxOpts): number
   return (lo + hi) / 2;
 }
 
-
 interface FirmRules {
   accountSize: number;
   profitSplit: number;
+  profitReleaseRate: number;
   maxPayoutPerAccount: number;
   minQualifyingDays: number;
   minProfitPerQualifyingDay: number;
+  minCycleProfit: number;
   bufferPerAccount: number;
 }
 
 export const FIRM_PRESETS = [
-  { label: "25K", accountSize: 25000, maxPayout: 1000 },
-  { label: "50K", accountSize: 50000, maxPayout: 2000 },
-  { label: "100K", accountSize: 100000, maxPayout: 4000 },
-  { label: "150K", accountSize: 150000, maxPayout: 6000 },
+  {
+    label: "25K",
+    accountSize: 25000,
+    maxPayout: 1000,
+    minDailyProfit: 100,
+    bufferPerAccount: 500,
+  },
+  {
+    label: "50K",
+    accountSize: 50000,
+    maxPayout: 2000,
+    minDailyProfit: 150,
+    bufferPerAccount: 2000,
+  },
+  {
+    label: "100K",
+    accountSize: 100000,
+    maxPayout: 2500,
+    minDailyProfit: 200,
+    bufferPerAccount: 2000,
+  },
+  {
+    label: "150K",
+    accountSize: 150000,
+    maxPayout: 3000,
+    minDailyProfit: 250,
+    bufferPerAccount: 3000,
+  },
 ] as const;
-
-export const BUFFER_PCT_OF_ACCOUNT = 0.02;
-export const QUALIFYING_DAY_PCT = 0.005;
 
 export const RISK_BANDS = [
   { max: 1, label: "conservative" },
@@ -183,7 +210,11 @@ export const RISK_BANDS = [
 interface PayoutEvent {
   index: number;
   day: number;
+  qualifyingDay: number;
+  profitDay: number;
   perAccountProfit: number;
+  cycleProfit: number;
+  cumulativeProfit: number; // total profit one account must have earned by now (incl. buffer)
   cash: number;
   balanceAfter: number;
   beyondMonth: boolean;
@@ -196,7 +227,12 @@ interface PlanOverrides {
 
 interface Scenario {
   accounts: number;
-  perAccountDaily: number;
+  perAccountDaily: number; // steady pace: earn the target over every trading day
+  fastDaily: number; // fast pace: unlock every payout on its earliest rule day
+  perAccountTarget: number; // total one account must earn this month (incl. buffer)
+  completionDay: number; // trading day the whole target is out, at fast pace
+  dailyRiskPct: number; // fast daily pace as % of account size
+  riskLabel: string; // conservative / moderate / aggressive
   totalCash: number;
   maxCash: number;
   shortfall: number;
@@ -222,6 +258,7 @@ type PayoutPlan =
       dailyPace: number;
       paceForced: boolean;
       dailyNeeded: number;
+      fastTrackDaily: number;
       perAccountDailySteady: number;
       dailyRiskPct: number;
       checks: {
@@ -231,6 +268,7 @@ type PayoutPlan =
         greenDaysNeeded: number;
         capOk: boolean;
         paceOk: boolean;
+        cycleProfitOk: boolean;
         valid: boolean;
       };
       scenarios: Scenario[];
@@ -247,7 +285,10 @@ export function computePayoutPlan(
   const withdrawProfit = incomeTarget / rules.profitSplit;
   const cap =
     rules.maxPayoutPerAccount > 0 ? rules.maxPayoutPerAccount : Infinity;
+  const releaseRate = Math.min(1, Math.max(0, rules.profitReleaseRate));
+  if (releaseRate <= 0) return { status: "invalid" };
   const minDays = Math.max(0, rules.minQualifyingDays);
+  const minCycleProfit = Math.max(0, rules.minCycleProfit);
   const buffer = Math.max(0, rules.bufferPerAccount);
 
   const cyclesAvailable =
@@ -276,8 +317,21 @@ export function computePayoutPlan(
   const cyclesUsed = Number.isFinite(cap)
     ? Math.max(1, Math.ceil(perAccountWithdraw / cap))
     : 1;
-  const perAccountEarnBuild = perAccountWithdraw + buffer;
-  const perAccountEarnSteady = perAccountWithdraw;
+  const requiredProfit = (withdrawal: number) =>
+    Math.max(minCycleProfit, withdrawal / releaseRate);
+  const requiredProfitForTotal = (withdrawal: number) => {
+    if (!Number.isFinite(cap)) return requiredProfit(withdrawal);
+    let remaining = withdrawal;
+    let total = 0;
+    while (remaining > 0.005) {
+      const request = Math.min(remaining, cap);
+      total += requiredProfit(request);
+      remaining -= request;
+    }
+    return total;
+  };
+  const perAccountEarnSteady = requiredProfitForTotal(perAccountWithdraw);
+  const perAccountEarnBuild = perAccountEarnSteady + buffer;
 
   const daily = (profit: number) =>
     tradingDays > 0 ? profit / tradingDays : 0;
@@ -287,6 +341,8 @@ export function computePayoutPlan(
 
   const payoutEvents: PayoutEvent[] = [];
   let cumWithdraw = 0;
+  let cumulativeRequiredProfit = buffer;
+  let fastTrackDaily = 0;
   for (let k = 1; k <= cyclesUsed; k++) {
     const prev = cumWithdraw;
     cumWithdraw = Math.min(
@@ -294,27 +350,74 @@ export function computePayoutPlan(
       perAccountWithdraw,
     );
     const perAccountProfit = cumWithdraw - prev;
+    const cycleProfit = requiredProfit(perAccountProfit);
+    cumulativeRequiredProfit += cycleProfit;
     const dayByEarnings =
-      dailyPace > 0 ? Math.ceil((cumWithdraw + buffer) / dailyPace) : 1;
-    const day = Math.max(k * minDays, dayByEarnings, 1);
+      dailyPace > 0 ? Math.ceil(cumulativeRequiredProfit / dailyPace) : 1;
+    const qualifyingDay = Math.max(k * minDays, 1);
+    fastTrackDaily = Math.max(
+      fastTrackDaily,
+      cumulativeRequiredProfit / qualifyingDay,
+    );
+    const day = Math.max(qualifyingDay, dayByEarnings);
     payoutEvents.push({
       index: k,
       day,
+      qualifyingDay,
+      profitDay: dayByEarnings,
       perAccountProfit,
+      cycleProfit,
+      cumulativeProfit: cumulativeRequiredProfit,
       cash: perAccountProfit * rules.profitSplit * accountsNeeded,
       balanceAfter: rules.accountSize + dailyPace * day - cumWithdraw,
       beyondMonth: day > tradingDays,
     });
   }
 
+  // Fast-track pace + completion day for a given per-account withdrawal. At the
+  // fast pace, every payout lands on its earliest rule day, so the whole target
+  // is out on the last cycle's qualifying day. Fewer cycles = fewer days.
+  const simulateFast = (perWithdraw: number) => {
+    const cycles = Number.isFinite(cap)
+      ? Math.max(1, Math.ceil(perWithdraw / cap))
+      : 1;
+    let cumWithdraw = 0;
+    let cumRequired = buffer;
+    let fastDaily = 0;
+    for (let k = 1; k <= cycles; k++) {
+      const prev = cumWithdraw;
+      cumWithdraw = Math.min(
+        Number.isFinite(cap) ? k * cap : perWithdraw,
+        perWithdraw,
+      );
+      cumRequired += requiredProfit(cumWithdraw - prev);
+      const qualifyingDay = Math.max(k * minDays, 1);
+      fastDaily = Math.max(fastDaily, cumRequired / qualifyingDay);
+    }
+    return { fastDaily, completionDay: Math.max(cycles * minDays, 1) };
+  };
+
   const scenarioFor = (accounts: number): Scenario => {
     const perWithdraw = withdrawProfit / accounts;
     const released = Math.min(perWithdraw, releasablePerAccount);
     const cash = released * rules.profitSplit * accounts;
     const raw = incomeTarget - cash;
+    const fast = simulateFast(released);
+    const fastDaily = Math.ceil(fast.fastDaily);
+    const dailyRiskPct =
+      rules.accountSize > 0 ? (fastDaily / rules.accountSize) * 100 : 0;
+    const riskLabel = (
+      RISK_BANDS.find((b) => dailyRiskPct <= b.max) ??
+      RISK_BANDS[RISK_BANDS.length - 1]
+    ).label;
     return {
       accounts,
-      perAccountDaily: daily(released + buffer),
+      perAccountDaily: daily(requiredProfitForTotal(released) + buffer),
+      fastDaily,
+      perAccountTarget: requiredProfitForTotal(released) + buffer,
+      completionDay: fast.completionDay,
+      dailyRiskPct,
+      riskLabel,
       totalCash: cash,
       maxCash: Number.isFinite(releasablePerAccount)
         ? releasablePerAccount * rules.profitSplit * accounts
@@ -323,6 +426,11 @@ export function computePayoutPlan(
     };
   };
 
+  // Smallest account count that fits the whole withdrawal in one payout each —
+  // the fewest-calendar-days option — always offered alongside the neighbours.
+  const singleCycleAccounts = Number.isFinite(cap)
+    ? Math.max(1, Math.ceil(withdrawProfit / cap))
+    : 1;
   const candidates = (
     recommendedAccounts === 1
       ? [1, 2, 3]
@@ -332,7 +440,7 @@ export function computePayoutPlan(
           recommendedAccounts + 1,
           recommendedAccounts + 2,
         ]
-  ).concat(accountsNeeded);
+  ).concat(accountsNeeded, singleCycleAccounts);
   const scenarios = [...new Set(candidates)]
     .filter((n) => n >= 1)
     .sort((a, b) => a - b)
@@ -344,6 +452,9 @@ export function computePayoutPlan(
   const daySizeOk = minQual <= 0 || dailyPace >= minQual;
   const capOk = shortfall === 0;
   const paceOk = dailyPace * tradingDays >= perAccountEarnBuild - 0.005;
+  const cycleProfitOk = payoutEvents.every(
+    (event) => event.cycleProfit >= minCycleProfit,
+  );
 
   return {
     status: "ok",
@@ -365,6 +476,7 @@ export function computePayoutPlan(
     dailyPace,
     paceForced,
     dailyNeeded,
+    fastTrackDaily,
     perAccountDailySteady: daily(perAccountEarnSteady),
     dailyRiskPct:
       rules.accountSize > 0 ? (dailyPace / rules.accountSize) * 100 : 0,
@@ -378,7 +490,8 @@ export function computePayoutPlan(
           : 0,
       capOk,
       paceOk,
-      valid: daysOk && daySizeOk && capOk && paceOk,
+      cycleProfitOk,
+      valid: daysOk && daySizeOk && capOk && paceOk && cycleProfitOk,
     },
     scenarios,
   };

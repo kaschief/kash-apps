@@ -71,7 +71,9 @@ count) don't change the arithmetic — they decide whether the resulting
 plan is *valid*, so they surface as pass/fail checks (`checks.*`) rather
 than feeding back into the numbers.
 
-Account-size presets model Lucid Trading-style firms: buffer defaults to
-2% of account size, a qualifying win day to 0.5% of account size, and the
-payout cap scales with account size — picking a preset defines the whole
+Account-size presets default to LucidFlex rules: five qualifying days per
+request, account-specific daily profit thresholds, 50% of cycle profit
+available to withdraw, at least $1 net-positive between requests, and the
+account-size payout cap. Every value remains editable so the planner can model
+other firms. Picking a preset defines the account-specific parts of the
 firm in one tap, and every value stays editable afterwards.
