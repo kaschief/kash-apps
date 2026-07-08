@@ -176,7 +176,7 @@ export const FIRM_PRESETS = [
     accountSize: 25000,
     maxPayout: 1000,
     minDailyProfit: 100,
-    bufferPerAccount: 500,
+    bufferPerAccount: 2000,
     monthlyCost: 150,
   },
   {

@@ -121,21 +121,30 @@ export function AccountOptimizer({ model }: { model: IncomeTrackerModel }) {
           return (
             <div
               key={row.label}
-              className={`rounded-lg border p-3 transition-colors ${
+              className={`group relative rounded-lg border p-3 transition-colors ${
+                preset ? "cursor-pointer" : ""
+              } ${
                 isBest
-                  ? "border-amber-400/40 bg-amber-400/[0.07]"
+                  ? "border-amber-400/40 bg-amber-400/[0.07] group-hover:border-amber-400/60"
                   : row.valid
-                    ? "border-gray-800 bg-gray-950/40"
+                    ? "border-gray-800 bg-gray-950/40 hover:border-gray-600"
                     : "border-red-500/25 bg-red-500/[0.05]"
               } ${isActive ? "ring-1 ring-inset ring-green-500/40" : ""}`}>
-              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-                {/* Size + apply */}
+              {/* Whole-card apply target. Sits above the card's static content
+                  (so a click anywhere loads this size) but below the fee input,
+                  which is raised to stay independently editable. */}
+              {preset && (
                 <button
                   type="button"
                   aria-pressed={isActive}
-                  disabled={!preset}
-                  onClick={() => preset && applyPreset(preset)}
-                  className="flex items-center gap-2 rounded px-1.5 py-1 text-left transition-colors hover:bg-gray-800/50 focus-visible:outline focus-visible:outline-1 focus-visible:outline-gray-500 disabled:opacity-50">
+                  aria-label={`Load ${row.label} into the plan`}
+                  onClick={() => applyPreset(preset)}
+                  className="absolute inset-0 z-0 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-amber-400/60"
+                />
+              )}
+              <div className="pointer-events-none flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                {/* Size */}
+                <div className="flex items-center gap-2">
                   <span className="text-lg font-bold tabular-nums text-gray-100">
                     {row.label}
                   </span>
@@ -149,7 +158,7 @@ export function AccountOptimizer({ model }: { model: IncomeTrackerModel }) {
                       loaded
                     </span>
                   )}
-                </button>
+                </div>
 
                 {/* Net after fees — the headline */}
                 <div className="text-right">
@@ -166,7 +175,7 @@ export function AccountOptimizer({ model }: { model: IncomeTrackerModel }) {
               </div>
 
               {row.valid ? (
-                <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-gray-800 pt-3 text-[11px] sm:grid-cols-4">
+                <div className="pointer-events-none mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-gray-800 pt-3 text-[11px] sm:grid-cols-4">
                   <Metric
                     label="Accounts"
                     value={`${row.accountsNeeded} × ${row.label}`}
@@ -198,7 +207,7 @@ export function AccountOptimizer({ model }: { model: IncomeTrackerModel }) {
                     label="Gross cash"
                     value={money0(fromUsd(row.grossCash))}
                   />
-                  <label className="flex flex-col gap-0.5">
+                  <label className="pointer-events-auto relative z-10 flex flex-col gap-0.5">
                     <span className="text-[10px] uppercase tracking-wider text-gray-500">
                       Fee / mo (USD)
                     </span>
@@ -226,7 +235,7 @@ export function AccountOptimizer({ model }: { model: IncomeTrackerModel }) {
                   </label>
                 </div>
               ) : (
-                <div className="mt-3 border-t border-red-500/20 pt-3 text-[11px] leading-relaxed text-red-300">
+                <div className="pointer-events-none mt-3 border-t border-red-500/20 pt-3 text-[11px] leading-relaxed text-red-300">
                   {row.shortfall > 0
                     ? `Falls ${money0(fromUsd(row.shortfall))} short — the payout cap can't release enough on this size. It would take more accounts or a higher cap.`
                     : "Breaks a firm rule at this target (not enough trading days for the required payouts)."}
