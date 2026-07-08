@@ -540,6 +540,7 @@ export interface OptimizerRow {
   grossCash: number; // cash received before account fees (firm split applied)
   totalCost: number; // monthly account fees across all accounts
   netAfterFees: number; // grossCash − totalCost (default ranking dimension)
+  efficiency: number; // netAfterFees ÷ totalProfit, 0..1 — cash kept per $ ground out
 }
 
 export interface OptimizerResult {
@@ -549,7 +550,7 @@ export interface OptimizerResult {
 // The dimensions a trader might legitimately optimise for. "kept" maximises
 // take-home cash; the rest minimise how demanding the plan is (a lower daily
 // pace, a smaller per-account aim, or less risk can each justify a size).
-export type OptimizerCriterion = "kept" | "pace" | "aim" | "risk";
+export type OptimizerCriterion = "kept" | "eff" | "pace" | "aim" | "risk";
 
 interface CriterionSpec {
   value: (row: OptimizerRow) => number;
@@ -558,6 +559,7 @@ interface CriterionSpec {
 
 const CRITERIA: Record<OptimizerCriterion, CriterionSpec> = {
   kept: { value: (r) => r.netAfterFees, higherIsBetter: true },
+  eff: { value: (r) => r.efficiency, higherIsBetter: true },
   pace: { value: (r) => r.dailyPace, higherIsBetter: false },
   aim: { value: (r) => r.profitPerAccount, higherIsBetter: false },
   risk: { value: (r) => r.dailyRiskPct, higherIsBetter: false },
@@ -626,6 +628,7 @@ export function optimizeAccountPlan(
         grossCash: 0,
         totalCost: c.monthlyCost,
         netAfterFees: -c.monthlyCost,
+        efficiency: 0,
       };
     }
 
@@ -635,6 +638,8 @@ export function optimizeAccountPlan(
       plan.scenarios.find((s) => s.accounts === plan.accountsNeeded) ?? null;
     const totalCost = c.monthlyCost * plan.accountsNeeded;
     const grossCash = plan.totalCash;
+    const totalProfit = plan.perAccountEarnBuild * plan.accountsNeeded;
+    const netAfterFees = grossCash - totalCost;
 
     return {
       label: c.label,
@@ -643,7 +648,7 @@ export function optimizeAccountPlan(
       valid: plan.checks.valid,
       shortfall: plan.shortfall,
       profitPerAccount: plan.perAccountEarnBuild,
-      totalProfit: plan.perAccountEarnBuild * plan.accountsNeeded,
+      totalProfit,
       dailyPace: scenario ? scenario.fastDaily : plan.dailyPace,
       dailyRiskPct: scenario ? scenario.dailyRiskPct : plan.dailyRiskPct,
       riskLabel: scenario
@@ -654,7 +659,8 @@ export function optimizeAccountPlan(
       cyclesUsed: plan.cyclesUsed,
       grossCash,
       totalCost,
-      netAfterFees: grossCash - totalCost,
+      netAfterFees,
+      efficiency: totalProfit > 0 ? netAfterFees / totalProfit : 0,
     };
   });
 

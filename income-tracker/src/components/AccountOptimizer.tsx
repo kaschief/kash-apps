@@ -17,6 +17,12 @@ const SORTS: {
 }[] = [
   { value: "kept", label: "Kept", badge: "best value", blurb: "keeps the most" },
   {
+    value: "eff",
+    label: "Efficiency",
+    badge: "most efficient",
+    blurb: "keeps the most per dollar earned",
+  },
+  {
     value: "pace",
     label: "Daily Pace",
     badge: "easiest pace",
@@ -54,6 +60,15 @@ export function AccountOptimizer({ model }: { model: IncomeTrackerModel }) {
 
   const [sortBy, setSortBy] = useState<OptimizerCriterion>("kept");
   const sort = SORTS.find((s) => s.value === sortBy) ?? SORTS[0];
+
+  // Conversion efficiency tops out near the profit-release rate (locked profit
+  // never converts to cash), so ~40%+ is close to the ceiling = green.
+  const efficiencyColor = (eff: number) =>
+    eff >= 0.4
+      ? "text-green-400"
+      : eff >= 0.3
+        ? "text-amber-300"
+        : "text-red-400";
 
   const activeSize = Number.parseFloat(accountSize);
   const riskColor = (label: string) =>
@@ -184,6 +199,12 @@ export function AccountOptimizer({ model }: { model: IncomeTrackerModel }) {
                     label="Aim / account"
                     value={usd0(row.profitPerAccount)}
                     valueClass="text-amber-300"
+                  />
+                  <Metric
+                    label="Efficiency"
+                    value={`${Math.round(row.efficiency * 100)}%`}
+                    valueClass={efficiencyColor(row.efficiency)}
+                    sub={`kept of ${usd0(row.totalProfit)} earned`}
                   />
                   <Metric
                     label="Daily pace"
