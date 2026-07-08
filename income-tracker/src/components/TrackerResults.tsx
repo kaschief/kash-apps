@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { IncomeTrackerModel } from "../hooks/useIncomeTracker";
-import { makeMoney, plural } from "../lib/format";
+import { accountScope, makeMoney, plural } from "../lib/format";
 import {
   CheckRow,
   CollapsibleSection,
@@ -206,19 +206,19 @@ export function TrackerResults({ model }: { model: IncomeTrackerModel }) {
                 options={[
                   {
                     value: "account",
-                    label: "Per account",
+                    label: "Per Account",
                     active: "bg-gray-700 text-gray-100",
                   },
                   {
                     value: "all",
-                    label: `All ${payout.accountsNeeded} accounts`,
+                    label: accountScope(payout.accountsNeeded),
                     active: "bg-gray-700 text-gray-100",
                   },
                 ]}
               />
             ) : (
               <span className="text-[10px] uppercase tracking-wider text-gray-500">
-                Single account
+                Single Account
               </span>
             )}
             <span className="text-[10px] text-gray-600">
@@ -339,7 +339,8 @@ export function TrackerResults({ model }: { model: IncomeTrackerModel }) {
             // A single account has no "all vs per" distinction — force per-account.
             const allView = accounts > 1 && journeyView === "all";
             const factor = allView ? accounts : 1;
-            const scope = allView ? `all ${accounts}` : "one";
+            // Only rendered under allView, so no single-account branch needed.
+            const scope = accounts === 2 ? "both" : `all ${accounts}`;
             const bufferPerAcct = parseFloat(bufferPerAccount) || 0;
             const bufferScoped = bufferPerAcct * factor;
             return (

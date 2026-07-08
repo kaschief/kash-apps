@@ -5,6 +5,7 @@ import {
   computeBreakdown,
   computeEmployerSocial,
   computePayoutPlan,
+  optimizeAccountPlan,
   solveGrossForNet,
 } from "../lib/domain";
 
@@ -38,6 +39,16 @@ export function useIncomeTracker() {
   const [minProfitPerDay, setMinProfitPerDay] = useState("150");
   const [minCycleProfit, setMinCycleProfit] = useState("1");
   const [bufferPerAccount, setBufferPerAccount] = useState("1000");
+
+  // Editable monthly account fee per firm size (USD), keyed by preset label.
+  // Seeded from the preset defaults; the optimizer nets these out of payouts.
+  const [presetCosts, setPresetCosts] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      FIRM_PRESETS.map((p) => [p.label, String(p.monthlyCost)]),
+    ),
+  );
+  const setPresetCost = (label: string, value: string) =>
+    setPresetCosts((prev) => ({ ...prev, [label]: value }));
 
   useEffect(() => {
     fetch("https://api.frankfurter.dev/v1/latest?base=EUR&symbols=USD")
@@ -310,6 +321,41 @@ export function useIncomeTracker() {
     ],
   );
 
+  const optimizer = useMemo(() => {
+    const incomeTargetUsd =
+      currency === "EUR"
+        ? calculations.monthly * (eurUsdRate ?? 1)
+        : calculations.monthly;
+    return optimizeAccountPlan(
+      incomeTargetUsd,
+      calculations.tradingDaysPerMonth,
+      {
+        profitSplit: (parseFloat(payoutSplitPct) || 0) / 100,
+        profitReleaseRate: (parseFloat(profitReleasePct) || 0) / 100,
+        minQualifyingDays: parseFloat(minQualifyingDays) || 0,
+        minCycleProfit: parseFloat(minCycleProfit) || 0,
+      },
+      FIRM_PRESETS.map((p) => ({
+        label: p.label,
+        accountSize: p.accountSize,
+        cap: p.maxPayout,
+        minDailyProfit: p.minDailyProfit,
+        buffer: p.bufferPerAccount,
+        monthlyCost: parseFloat(presetCosts[p.label] ?? "") || 0,
+      })),
+    );
+  }, [
+    calculations.monthly,
+    calculations.tradingDaysPerMonth,
+    payoutSplitPct,
+    profitReleasePct,
+    minQualifyingDays,
+    minCycleProfit,
+    presetCosts,
+    currency,
+    eurUsdRate,
+  ]);
+
   const riskBand =
     payout.status === "ok"
       ? RISK_BANDS.find((b) => payout.dailyRiskPct <= b.max) ??
@@ -412,6 +458,9 @@ export function useIncomeTracker() {
     setAccountsOverride,
     applyPreset,
     firmPresets: FIRM_PRESETS,
+    presetCosts,
+    setPresetCost,
+    optimizer,
     calculations,
     comparisonLevels,
     visibleLevels,

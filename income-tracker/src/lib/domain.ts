@@ -177,6 +177,7 @@ export const FIRM_PRESETS = [
     maxPayout: 1000,
     minDailyProfit: 100,
     bufferPerAccount: 500,
+    monthlyCost: 150,
   },
   {
     label: "50K",
@@ -184,6 +185,7 @@ export const FIRM_PRESETS = [
     maxPayout: 2000,
     minDailyProfit: 150,
     bufferPerAccount: 2000,
+    monthlyCost: 170,
   },
   {
     label: "100K",
@@ -191,6 +193,7 @@ export const FIRM_PRESETS = [
     maxPayout: 2500,
     minDailyProfit: 200,
     bufferPerAccount: 2000,
+    monthlyCost: 200,
   },
   {
     label: "150K",
@@ -198,6 +201,7 @@ export const FIRM_PRESETS = [
     maxPayout: 3000,
     minDailyProfit: 250,
     bufferPerAccount: 3000,
+    monthlyCost: 260,
   },
 ] as const;
 
@@ -495,4 +499,164 @@ export function computePayoutPlan(
     },
     scenarios,
   };
+}
+
+// ── Account-size optimizer ─────────────────────────────────────────────────
+// Given one income target, rank candidate account sizes by the cash you keep
+// AFTER the firm's monthly account fee — the tradeoff the payout plan alone
+// can't see. Every candidate reuses computePayoutPlan with the SHARED rules
+// (split, release, min days) but its own size-specific cap/buffer/min-day and
+// monthly cost, then we score the recommended-accounts plan for each.
+
+export interface AccountCandidate {
+  label: string;
+  accountSize: number;
+  cap: number;
+  minDailyProfit: number;
+  buffer: number;
+  monthlyCost: number;
+}
+
+export interface SharedRules {
+  profitSplit: number;
+  profitReleaseRate: number;
+  minQualifyingDays: number;
+  minCycleProfit: number;
+}
+
+export interface OptimizerRow {
+  label: string;
+  accountSize: number;
+  accountsNeeded: number;
+  valid: boolean; // reaches target AND passes every firm rule
+  shortfall: number;
+  profitPerAccount: number; // monthly profit each account must generate
+  totalProfit: number; // across all accounts
+  dailyPace: number; // per account, fast-track
+  dailyRiskPct: number;
+  riskLabel: string;
+  completionDay: number; // trading days until the whole target is out
+  cyclesUsed: number; // payout requests per account
+  grossCash: number; // cash received before account fees (firm split applied)
+  totalCost: number; // monthly account fees across all accounts
+  netAfterFees: number; // grossCash − totalCost (default ranking dimension)
+}
+
+export interface OptimizerResult {
+  rows: OptimizerRow[]; // one per candidate, in natural size order
+}
+
+// The dimensions a trader might legitimately optimise for. "kept" maximises
+// take-home cash; the rest minimise how demanding the plan is (a lower daily
+// pace, a smaller per-account aim, or less risk can each justify a size).
+export type OptimizerCriterion = "kept" | "pace" | "aim" | "risk";
+
+interface CriterionSpec {
+  value: (row: OptimizerRow) => number;
+  higherIsBetter: boolean;
+}
+
+const CRITERIA: Record<OptimizerCriterion, CriterionSpec> = {
+  kept: { value: (r) => r.netAfterFees, higherIsBetter: true },
+  pace: { value: (r) => r.dailyPace, higherIsBetter: false },
+  aim: { value: (r) => r.profitPerAccount, higherIsBetter: false },
+  risk: { value: (r) => r.dailyRiskPct, higherIsBetter: false },
+};
+
+export interface RankedOptimizer {
+  rows: OptimizerRow[]; // best-first for the chosen criterion, invalid last
+  bestLabel: string | null; // top VALID row, or null if none reaches target
+}
+
+/**
+ * Orders the candidate rows for a chosen criterion. Invalid plans (can't reach
+ * the target) always sort last so their shortfall stays visible. Ties fall back
+ * to cash kept, then fewer days in market — a stable, sensible ordering.
+ */
+export function rankOptimizerRows(
+  rows: OptimizerRow[],
+  criterion: OptimizerCriterion,
+): RankedOptimizer {
+  const { value, higherIsBetter } = CRITERIA[criterion];
+  const dir = higherIsBetter ? -1 : 1;
+  const sorted = [...rows].sort((a, b) => {
+    if (a.valid !== b.valid) return a.valid ? -1 : 1;
+    return (
+      dir * (value(a) - value(b)) ||
+      b.netAfterFees - a.netAfterFees ||
+      a.completionDay - b.completionDay
+    );
+  });
+  const best = sorted.find((r) => r.valid) ?? null;
+  return { rows: sorted, bestLabel: best?.label ?? null };
+}
+
+export function optimizeAccountPlan(
+  incomeTarget: number,
+  tradingDays: number,
+  shared: SharedRules,
+  candidates: AccountCandidate[],
+): OptimizerResult {
+  const rows = candidates.map((c): OptimizerRow => {
+    const plan = computePayoutPlan(incomeTarget, tradingDays, {
+      accountSize: c.accountSize,
+      profitSplit: shared.profitSplit,
+      profitReleaseRate: shared.profitReleaseRate,
+      maxPayoutPerAccount: c.cap,
+      minQualifyingDays: shared.minQualifyingDays,
+      minProfitPerQualifyingDay: c.minDailyProfit,
+      minCycleProfit: shared.minCycleProfit,
+      bufferPerAccount: c.buffer,
+    });
+
+    if (plan.status !== "ok") {
+      return {
+        label: c.label,
+        accountSize: c.accountSize,
+        accountsNeeded: 0,
+        valid: false,
+        shortfall: incomeTarget,
+        profitPerAccount: 0,
+        totalProfit: 0,
+        dailyPace: 0,
+        dailyRiskPct: 0,
+        riskLabel: RISK_BANDS[RISK_BANDS.length - 1].label,
+        completionDay: 0,
+        cyclesUsed: 0,
+        grossCash: 0,
+        totalCost: c.monthlyCost,
+        netAfterFees: -c.monthlyCost,
+      };
+    }
+
+    // The recommended-accounts scenario carries the fast-track pace, days and
+    // risk for the plan the trader would actually run.
+    const scenario =
+      plan.scenarios.find((s) => s.accounts === plan.accountsNeeded) ?? null;
+    const totalCost = c.monthlyCost * plan.accountsNeeded;
+    const grossCash = plan.totalCash;
+
+    return {
+      label: c.label,
+      accountSize: c.accountSize,
+      accountsNeeded: plan.accountsNeeded,
+      valid: plan.checks.valid,
+      shortfall: plan.shortfall,
+      profitPerAccount: plan.perAccountEarnBuild,
+      totalProfit: plan.perAccountEarnBuild * plan.accountsNeeded,
+      dailyPace: scenario ? scenario.fastDaily : plan.dailyPace,
+      dailyRiskPct: scenario ? scenario.dailyRiskPct : plan.dailyRiskPct,
+      riskLabel: scenario
+        ? scenario.riskLabel
+        : (RISK_BANDS.find((b) => plan.dailyRiskPct <= b.max) ??
+            RISK_BANDS[RISK_BANDS.length - 1]).label,
+      completionDay: scenario ? scenario.completionDay : 0,
+      cyclesUsed: plan.cyclesUsed,
+      grossCash,
+      totalCost,
+      netAfterFees: grossCash - totalCost,
+    };
+  });
+
+  return { rows };
 }

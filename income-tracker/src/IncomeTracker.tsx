@@ -1,4 +1,5 @@
 import { FirmRulesSection, IncomeGoalSection } from "./components/SetupSections";
+import { AccountOptimizer } from "./components/AccountOptimizer";
 import { CurrencySwitch } from "./components/CurrencySwitch";
 import { IncomeOverview } from "./components/IncomeOverview";
 import { PlanSummary } from "./components/PlanSummary";
@@ -73,6 +74,8 @@ export default function IncomeTracker() {
         <IncomeOverview model={model} />
 
         <PlanSummary model={model} />
+
+        <AccountOptimizer model={model} />
 
         <FirmRulesSection
           currency="USD"

@@ -49,3 +49,10 @@ export const plural = (
   singular: string,
   pluralForm = `${singular}s`,
 ) => (n === 1 ? singular : pluralForm);
+
+/**
+ * Title Case scope for a group of accounts, phrased naturally:
+ * 1 → "Single Account", 2 → "Both Accounts", 3+ → "All 3 Accounts".
+ */
+export const accountScope = (n: number) =>
+  n <= 1 ? "Single Account" : n === 2 ? "Both Accounts" : `All ${n} Accounts`;
