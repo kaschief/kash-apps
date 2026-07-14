@@ -42,15 +42,15 @@ const SORTS: {
   },
 ];
 
-// Ranks the firm's account sizes by the cash you keep AFTER the monthly account
-// fee — the one comparison the single-account plan can't show. Rows are sorted
-// best-first; picking one applies that size to the whole tracker.
+// Ranks the firm's account sizes by the cash you keep AFTER the one-time
+// account fees — the one comparison the single-account plan can't show. Rows are
+// sorted best-first; picking one applies that size to the whole tracker.
 export function AccountOptimizer({ model }: { model: IncomeTrackerModel }) {
   const {
     optimizer,
     firmPresets,
-    presetCosts,
-    setPresetCost,
+    presetFees,
+    setPresetFee,
     applyPreset,
     accountSize,
     currency,
@@ -94,8 +94,8 @@ export function AccountOptimizer({ model }: { model: IncomeTrackerModel }) {
             <span className="text-amber-300">{best.label}</span> keeps{" "}
             <span className="text-green-400">
               {money0(fromUsd(best.netAfterFees))}
-            </span>
-            /mo after fees
+            </span>{" "}
+            after fees
           </span>
         ) : (
           <span className="whitespace-nowrap text-[10px] normal-case tracking-normal text-red-400 group-open:hidden">
@@ -107,8 +107,8 @@ export function AccountOptimizer({ model }: { model: IncomeTrackerModel }) {
         Same income target, every firm size compared. Rank by what matters to
         you — cash kept after fees, or the least-demanding plan. Profit &amp;
         daily pace are firm-side USD; cash kept is in your currency. Tap a size
-        to load it into the plan above. Fees are editable — set your firm's real
-        price.
+        to load it into the plan above. The fee is the one-time price of a single
+        account — editable, and charged once for each account the size needs.
       </p>
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -132,7 +132,7 @@ export function AccountOptimizer({ model }: { model: IncomeTrackerModel }) {
           const preset = firmPresets.find((p) => p.label === row.label);
           const isBest = row.label === bestLabel;
           const isActive = row.accountSize === activeSize;
-          const feeValue = presetCosts[row.label] ?? "";
+          const feeValue = presetFees[row.label] ?? "";
           return (
             <div
               key={row.label}
@@ -230,7 +230,7 @@ export function AccountOptimizer({ model }: { model: IncomeTrackerModel }) {
                   />
                   <label className="pointer-events-auto relative z-10 flex flex-col gap-0.5">
                     <span className="text-[10px] uppercase tracking-wider text-gray-500">
-                      Fee / mo (USD)
+                      Fee / account (USD)
                     </span>
                     <span className="relative">
                       <span
@@ -242,16 +242,24 @@ export function AccountOptimizer({ model }: { model: IncomeTrackerModel }) {
                         type="number"
                         inputMode="decimal"
                         min={0}
-                        aria-label={`${row.label} monthly fee`}
+                        aria-label={`${row.label} one-time fee for one account`}
+                        aria-describedby={`${row.label}-fee-total`}
                         value={feeValue}
                         onChange={(e) =>
-                          setPresetCost(
+                          setPresetFee(
                             row.label,
                             normalizeNumberInput(e.target.value),
                           )
                         }
                         className="number-input h-7 w-full rounded border border-gray-800 bg-gray-950 pl-5 pr-2 text-right text-xs font-semibold tabular-nums text-white focus:border-gray-600 focus:outline-none"
                       />
+                    </span>
+                    <span
+                      id={`${row.label}-fee-total`}
+                      className="text-[10px] text-gray-500">
+                      one-time · {usd0(row.totalCost)} for{" "}
+                      {row.accountsNeeded}{" "}
+                      {plural(row.accountsNeeded, "account")}
                     </span>
                   </label>
                 </div>
@@ -274,8 +282,9 @@ export function AccountOptimizer({ model }: { model: IncomeTrackerModel }) {
           <span className="text-green-400">
             {money0(fromUsd(best.netAfterFees))}
           </span>{" "}
-          after {money0(fromUsd(best.totalCost))} in fees, reaching the target
-          with {best.accountsNeeded} {plural(best.accountsNeeded, "account")} in{" "}
+          after {money0(fromUsd(best.totalCost))} in one-time account fees,
+          reaching the target with {best.accountsNeeded}{" "}
+          {plural(best.accountsNeeded, "account")} in{" "}
           {best.completionDay} {plural(best.completionDay, "day")} at{" "}
           {best.riskLabel} risk. This is firm-side, before German tax (section 7
           applies that to the gross).

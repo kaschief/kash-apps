@@ -40,15 +40,14 @@ export function useIncomeTracker() {
   const [minCycleProfit, setMinCycleProfit] = useState("1");
   const [bufferPerAccount, setBufferPerAccount] = useState("1000");
 
-  // Editable monthly account fee per firm size (USD), keyed by preset label.
-  // Seeded from the preset defaults; the optimizer nets these out of payouts.
-  const [presetCosts, setPresetCosts] = useState<Record<string, string>>(() =>
-    Object.fromEntries(
-      FIRM_PRESETS.map((p) => [p.label, String(p.monthlyCost)]),
-    ),
+  // Editable one-time fee to buy ONE account of each firm size (USD), keyed by
+  // preset label. Seeded from the preset defaults; the optimizer charges it once
+  // per account a size needs and nets the total out of payouts.
+  const [presetFees, setPresetFees] = useState<Record<string, string>>(() =>
+    Object.fromEntries(FIRM_PRESETS.map((p) => [p.label, String(p.accountFee)])),
   );
-  const setPresetCost = (label: string, value: string) =>
-    setPresetCosts((prev) => ({ ...prev, [label]: value }));
+  const setPresetFee = (label: string, value: string) =>
+    setPresetFees((prev) => ({ ...prev, [label]: value }));
 
   useEffect(() => {
     fetch("https://api.frankfurter.dev/v1/latest?base=EUR&symbols=USD")
@@ -341,7 +340,7 @@ export function useIncomeTracker() {
         cap: p.maxPayout,
         minDailyProfit: p.minDailyProfit,
         buffer: p.bufferPerAccount,
-        monthlyCost: parseFloat(presetCosts[p.label] ?? "") || 0,
+        accountFee: parseFloat(presetFees[p.label] ?? "") || 0,
       })),
     );
   }, [
@@ -351,7 +350,7 @@ export function useIncomeTracker() {
     profitReleasePct,
     minQualifyingDays,
     minCycleProfit,
-    presetCosts,
+    presetFees,
     currency,
     eurUsdRate,
   ]);
@@ -458,8 +457,8 @@ export function useIncomeTracker() {
     setAccountsOverride,
     applyPreset,
     firmPresets: FIRM_PRESETS,
-    presetCosts,
-    setPresetCost,
+    presetFees,
+    setPresetFee,
     optimizer,
     calculations,
     comparisonLevels,

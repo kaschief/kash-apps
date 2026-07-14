@@ -177,7 +177,7 @@ export const FIRM_PRESETS = [
     maxPayout: 1000,
     minDailyProfit: 100,
     bufferPerAccount: 2000,
-    monthlyCost: 150,
+    accountFee: 150,
   },
   {
     label: "50K",
@@ -185,7 +185,7 @@ export const FIRM_PRESETS = [
     maxPayout: 2000,
     minDailyProfit: 150,
     bufferPerAccount: 2000,
-    monthlyCost: 170,
+    accountFee: 170,
   },
   {
     label: "100K",
@@ -193,7 +193,7 @@ export const FIRM_PRESETS = [
     maxPayout: 2500,
     minDailyProfit: 200,
     bufferPerAccount: 2000,
-    monthlyCost: 200,
+    accountFee: 200,
   },
   {
     label: "150K",
@@ -201,7 +201,7 @@ export const FIRM_PRESETS = [
     maxPayout: 3000,
     minDailyProfit: 250,
     bufferPerAccount: 3000,
-    monthlyCost: 260,
+    accountFee: 260,
   },
 ] as const;
 
@@ -503,10 +503,10 @@ export function computePayoutPlan(
 
 // ── Account-size optimizer ─────────────────────────────────────────────────
 // Given one income target, rank candidate account sizes by the cash you keep
-// AFTER the firm's monthly account fee — the tradeoff the payout plan alone
-// can't see. Every candidate reuses computePayoutPlan with the SHARED rules
-// (split, release, min days) but its own size-specific cap/buffer/min-day and
-// monthly cost, then we score the recommended-accounts plan for each.
+// AFTER the firm's account fee — the tradeoff the payout plan alone can't see.
+// Every candidate reuses computePayoutPlan with the SHARED rules (split,
+// release, min days) but its own size-specific cap/buffer/min-day and account
+// fee, then we score the recommended-accounts plan for each.
 
 export interface AccountCandidate {
   label: string;
@@ -514,7 +514,7 @@ export interface AccountCandidate {
   cap: number;
   minDailyProfit: number;
   buffer: number;
-  monthlyCost: number;
+  accountFee: number; // one-time fee to buy ONE account of this size (USD)
 }
 
 export interface SharedRules {
@@ -538,7 +538,7 @@ export interface OptimizerRow {
   completionDay: number; // trading days until the whole target is out
   cyclesUsed: number; // payout requests per account
   grossCash: number; // cash received before account fees (firm split applied)
-  totalCost: number; // monthly account fees across all accounts
+  totalCost: number; // accountFee × accountsNeeded — one-time, not recurring
   netAfterFees: number; // grossCash − totalCost (default ranking dimension)
   efficiency: number; // netAfterFees ÷ totalProfit, 0..1 — cash kept per $ ground out
 }
@@ -626,8 +626,8 @@ export function optimizeAccountPlan(
         completionDay: 0,
         cyclesUsed: 0,
         grossCash: 0,
-        totalCost: c.monthlyCost,
-        netAfterFees: -c.monthlyCost,
+        totalCost: c.accountFee,
+        netAfterFees: -c.accountFee,
         efficiency: 0,
       };
     }
@@ -636,7 +636,9 @@ export function optimizeAccountPlan(
     // risk for the plan the trader would actually run.
     const scenario =
       plan.scenarios.find((s) => s.accounts === plan.accountsNeeded) ?? null;
-    const totalCost = c.monthlyCost * plan.accountsNeeded;
+    // One-time fee per account bought — charged once for each of the accounts
+    // this size needs, not per month.
+    const totalCost = c.accountFee * plan.accountsNeeded;
     const grossCash = plan.totalCash;
     const totalProfit = plan.perAccountEarnBuild * plan.accountsNeeded;
     const netAfterFees = grossCash - totalCost;
