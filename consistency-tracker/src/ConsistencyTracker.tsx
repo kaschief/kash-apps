@@ -5,6 +5,44 @@ interface Day {
   profit: string;
 }
 
+const PROFIT_TARGET_PRESETS = [
+  { label: "25K", profitTarget: 1250 },
+  { label: "50K", profitTarget: 3000 },
+  { label: "100K", profitTarget: 6000 },
+  { label: "150K", profitTarget: 9000 },
+] as const;
+
+const fieldLabelStyle: React.CSSProperties = {
+  display: "block",
+  fontSize: "11px",
+  textTransform: "uppercase",
+  letterSpacing: "1px",
+  color: "#666",
+  marginBottom: "10px",
+  whiteSpace: "nowrap",
+};
+
+const fieldInputStyle: React.CSSProperties = {
+  width: "100%",
+  background: "#0a0a0b",
+  border: "1px solid #2a2a2b",
+  borderRadius: "4px",
+  padding: "12px 14px",
+  color: "#fff",
+  fontSize: "16px",
+  fontFamily: "inherit",
+  fontWeight: 600,
+};
+
+const fieldAffixStyle: React.CSSProperties = {
+  position: "absolute",
+  top: "50%",
+  transform: "translateY(-50%)",
+  color: "#444",
+  fontSize: "14px",
+  pointerEvents: "none",
+};
+
 interface AnalyzedDay extends Day {
   profitNum: number;
   isLiveDay?: boolean;
@@ -258,11 +296,15 @@ const ConsistencyTracker = () => {
         violatingDays[0],
       );
 
-      // Option A: Add more profit today to dilute
-      // Need: biggestDay / (total + X) = limit
-      // X = biggestDay / limit - total
-      const addMoreToFix = minNeededToFix ?? 0;
-      const newTotalAfterAdd = totalProfit + addMoreToFix;
+      const goalTotal = effectiveTarget;
+      const shortfallToGoal = Math.max(0, goalTotal - totalProfit);
+      const maxDayAtGoal = goalTotal * safeLimitFraction;
+      const daysToFix =
+        shortfallToGoal > 0 && maxDayAtGoal > 0
+          ? Math.max(1, Math.ceil(shortfallToGoal / maxDayAtGoal))
+          : 0;
+      const perDayToFix = daysToFix > 0 ? shortfallToGoal / daysToFix : 0;
+      const newTotalAfterAdd = goalTotal;
 
       // Option B: Reduce the big day (take a loss on it)
       // Need: (biggestDay - X) / (total - X) = limit
@@ -276,33 +318,30 @@ const ConsistencyTracker = () => {
         (1 - safeLimitFraction);
       const newBigDayAfterReduce = biggestDay.profitNum - reduceAmount;
 
-      // Option C: Safe range for next trade
-      // Min to fix: same as addMoreToFix
-      // Max allowed: lower of (self-constraint max) and (target-based max)
-      // This ensures user doesn't exceed what's needed for their target
-      const tomorrowMin = addMoreToFix;
-      const selfConstraintMax =
-        (safeLimitFraction * totalProfit) / (1 - safeLimitFraction);
-      // Cap the safe range at what's left to the target — never suggest a
-      // per-day amount that would overshoot it. remainingToTarget is always
-      // >= tomorrowMin (the fix amount), so the range never inverts here.
-      const tomorrowMax =
-        targetNum > 0
-          ? Math.min(
-              selfConstraintMax,
-              targetNum * safeLimitFraction,
-              remainingToTarget,
-            )
-          : selfConstraintMax;
+      const tomorrowMin = perDayToFix;
+      const tomorrowMax = maxDayAtGoal;
 
       // Check if the biggest violating day is the last entry (can still reduce it)
       const lastDayId = profitDays[profitDays.length - 1].id;
-      const canReduceBigDay = biggestDay.id === lastDayId;
+      const newTotalAfterReduce = totalProfit - reduceAmount;
+      // Giving back shrinks total as fast as it shrinks the big day, so it only
+      // helps while total exceeds that day — otherwise the ratio GROWS and the
+      // algebra "solves" by flipping both sides negative.
+      const canReduceBigDay =
+        biggestDay.id === lastDayId &&
+        newBigDayAfterReduce >= 0 &&
+        newTotalAfterReduce > 0 &&
+        dayAnalysis.every(
+          (d) =>
+            d.id === biggestDay.id ||
+            d.profitNum <= safeLimitFraction * newTotalAfterReduce,
+        );
 
       guidance = {
         biggestDay,
-        // Option A: Add more today
-        addMoreToFix,
+        shortfallToGoal,
+        daysToFix,
+        perDayToFix,
         newTotalAfterAdd,
         // Option B: Take a loss (only if it's the last day)
         canReduceBigDay,
@@ -314,10 +353,10 @@ const ConsistencyTracker = () => {
       };
     }
 
-    // Guidance when target is pushed up but not technically violating (e.g., single day)
-    // User should have option to reduce to stay within original target
+    // Shown whenever the target is inflated — including while violating, which
+    // is exactly when the trader needs to know giving back protects the target.
     let targetPushedGuidance = null;
-    if (targetPushedUp && !currentlyViolating && profitDays.length > 0) {
+    if (targetPushedUp && profitDays.length > 0) {
       const biggestDay = dayAnalysis.reduce(
         (max, d) => (d.profitNum > max.profitNum ? d : max),
         dayAnalysis[0],
@@ -497,29 +536,18 @@ const ConsistencyTracker = () => {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-              gap: "24px",
+              gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+              gap: "20px",
+              alignItems: "start",
             }}>
             {/* Consistency Limit */}
             <div>
-              <label
-                style={{
-                  display: "block",
-                  fontSize: "11px",
-                  textTransform: "uppercase",
-                  letterSpacing: "1px",
-                  color: "#666",
-                  marginBottom: "12px",
-                }}>
+              <label style={fieldLabelStyle} htmlFor="consistency-limit">
                 Consistency Limit
               </label>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                }}>
+              <div style={{ position: "relative" }}>
                 <input
+                  id="consistency-limit"
                   type="number"
                   value={consistencyLimit}
                   onChange={(e) =>
@@ -530,79 +558,81 @@ const ConsistencyTracker = () => {
                       ),
                     )
                   }
-                  style={{
-                    width: "80px",
-                    background: "#0a0a0b",
-                    border: "1px solid #2a2a2b",
-                    borderRadius: "4px",
-                    padding: "12px 16px",
-                    color: "#fff",
-                    fontSize: "16px",
-                    fontFamily: "inherit",
-                    fontWeight: "600",
-                    textAlign: "center",
-                  }}
+                  style={{ ...fieldInputStyle, paddingRight: "34px" }}
                 />
-                <span style={{ color: "#666", fontSize: "14px" }}>%</span>
+                <span style={{ ...fieldAffixStyle, right: "14px" }}>%</span>
               </div>
             </div>
 
             {/* Profit Target */}
             <div>
-              <label
-                style={{
-                  display: "block",
-                  fontSize: "11px",
-                  textTransform: "uppercase",
-                  letterSpacing: "1px",
-                  color: "#666",
-                  marginBottom: "12px",
-                }}>
+              <label style={fieldLabelStyle} htmlFor="profit-target">
                 Profit Target
               </label>
               <div style={{ position: "relative" }}>
-                <span
-                  style={{
-                    position: "absolute",
-                    left: "12px",
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                    color: "#444",
-                    fontSize: "14px",
-                  }}>
-                  $
-                </span>
+                <span style={{ ...fieldAffixStyle, left: "14px" }}>$</span>
                 <input
+                  id="profit-target"
                   type="number"
-                  placeholder="e.g. 3000"
+                  placeholder="0"
                   value={profitTarget}
                   onChange={(e) => setProfitTarget(e.target.value)}
-                  style={{
-                    width: "140px",
-                    background: "#0a0a0b",
-                    border: "1px solid #2a2a2b",
-                    borderRadius: "4px",
-                    padding: "12px 16px 12px 28px",
-                    color: "#fff",
-                    fontSize: "16px",
-                    fontFamily: "inherit",
-                    fontWeight: "600",
-                  }}
+                  style={{ ...fieldInputStyle, paddingLeft: "28px" }}
                 />
+              </div>
+              <div
+                role="group"
+                aria-label="Profit target preset"
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: `repeat(${PROFIT_TARGET_PRESETS.length}, 1fr)`,
+                  gap: "2px",
+                  background: "#0a0a0b",
+                  border: "1px solid #1a1a1b",
+                  borderRadius: "4px",
+                  padding: "2px",
+                  marginTop: "8px",
+                }}>
+                {PROFIT_TARGET_PRESETS.map((preset) => {
+                  const isActive =
+                    parseFloat(profitTarget) === preset.profitTarget;
+                  return (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      aria-pressed={isActive}
+                      onClick={() =>
+                        setProfitTarget(String(preset.profitTarget))
+                      }
+                      style={{
+                        background: isActive ? "#2a2a2b" : "transparent",
+                        border: "none",
+                        borderRadius: "3px",
+                        padding: "5px 0",
+                        color: isActive ? "#fff" : "#666",
+                        fontSize: "10px",
+                        fontFamily: "inherit",
+                        fontWeight: isActive ? "600" : "500",
+                        letterSpacing: "0.5px",
+                        cursor: "pointer",
+                        transition: "color 0.15s, background 0.15s",
+                      }}
+                      onMouseOver={(e) => {
+                        if (!isActive) e.currentTarget.style.color = "#aaa";
+                      }}
+                      onMouseOut={(e) => {
+                        if (!isActive) e.currentTarget.style.color = "#666";
+                      }}>
+                      {preset.label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
             {/* Live Balance */}
             <div>
-              <label
-                style={{
-                  display: "block",
-                  fontSize: "11px",
-                  textTransform: "uppercase",
-                  letterSpacing: "1px",
-                  color: "#666",
-                  marginBottom: "12px",
-                }}>
+              <label style={fieldLabelStyle} htmlFor="live-balance">
                 Live Balance{" "}
                 <span style={{ color: "#444", textTransform: "none" }}>
                   (optional)
@@ -611,32 +641,25 @@ const ConsistencyTracker = () => {
               <div style={{ position: "relative" }}>
                 <span
                   style={{
-                    position: "absolute",
-                    left: "12px",
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                    color: "#444",
-                    fontSize: "14px",
+                    ...fieldAffixStyle,
+                    left: "14px",
+                    color: liveBalance ? "#00aaff" : "#444",
                   }}>
                   $
                 </span>
                 <input
+                  id="live-balance"
                   type="number"
                   placeholder="Current balance"
                   value={liveBalance}
                   onChange={(e) => setLiveBalance(e.target.value)}
                   style={{
-                    width: "140px",
-                    background: "#0a0a0b",
+                    ...fieldInputStyle,
+                    paddingLeft: "28px",
                     border: liveBalance
                       ? "1px solid #00aaff"
                       : "1px solid #2a2a2b",
-                    borderRadius: "4px",
-                    padding: "12px 16px 12px 28px",
                     color: "#00aaff",
-                    fontSize: "16px",
-                    fontFamily: "inherit",
-                    fontWeight: "600",
                   }}
                 />
               </div>
@@ -922,9 +945,7 @@ const ConsistencyTracker = () => {
                   fontWeight: "600",
                   color: "#ccc",
                 }}>
-                {formatCurrency(
-                  analysis.totalProfit + (analysis.minNeededToFix || 0),
-                )}
+                {formatCurrency(analysis.effectiveTarget)}
               </div>
               <div
                 style={{
@@ -962,7 +983,7 @@ const ConsistencyTracker = () => {
                   fontWeight: "600",
                   color: "#ffaa00",
                 }}>
-                {formatCurrency(analysis.minNeededToFix)}
+                {formatCurrency(analysis.remainingToTarget)}
               </div>
               <div
                 style={{
@@ -1208,8 +1229,7 @@ const ConsistencyTracker = () => {
                     <div
                       style={{
                         fontSize: "10px",
-                        color:
-                          analysis.minDaysNeeded <= 1 ? "#00ff88" : "#444",
+                        color: analysis.minDaysNeeded <= 1 ? "#00ff88" : "#444",
                         marginTop: "2px",
                       }}>
                       {analysis.minDaysNeeded <= 1
@@ -1514,7 +1534,8 @@ const ConsistencyTracker = () => {
                     color: "#00ff88",
                     marginBottom: "8px",
                   }}>
-                  Option A: Earn More (New Day)
+                  Option A: Earn More ({analysis.guidance.daysToFix} New Day
+                  {analysis.guidance.daysToFix === 1 ? "" : "s"})
                 </div>
                 <div
                   style={{
@@ -1524,16 +1545,36 @@ const ConsistencyTracker = () => {
                   }}>
                   Make{" "}
                   <span style={{ color: "#00ff88", fontWeight: "600" }}>
-                    {formatCurrency(analysis.guidance.addMoreToFix)}
+                    {formatCurrency(analysis.guidance.perDayToFix)}
                   </span>{" "}
-                  on another trading day → new total becomes{" "}
+                  on each of{" "}
+                  <span style={{ color: "#00ff88", fontWeight: "600" }}>
+                    {analysis.guidance.daysToFix}
+                  </span>{" "}
+                  more trading day
+                  {analysis.guidance.daysToFix === 1 ? "" : "s"} → new total
+                  becomes{" "}
                   <span style={{ color: "#fff", fontWeight: "500" }}>
                     {formatCurrency(analysis.guidance.newTotalAfterAdd)}
                   </span>
                 </div>
                 <div
                   style={{ color: "#666", fontSize: "12px", marginTop: "6px" }}>
-                  Dilutes the big day back to exactly {consistencyLimit}%
+                  Big day →{" "}
+                  {(
+                    (analysis.guidance.biggestDay.profitNum /
+                      analysis.guidance.newTotalAfterAdd) *
+                    100
+                  ).toFixed(1)}
+                  %
+                  {analysis.guidance.daysToFix > 1 &&
+                    ` · one ${formatCurrency(
+                      analysis.guidance.shortfallToGoal,
+                    )} day would be ${(
+                      (analysis.guidance.shortfallToGoal /
+                        analysis.guidance.newTotalAfterAdd) *
+                      100
+                    ).toFixed(1)}%`}
                 </div>
               </div>
 
@@ -1588,6 +1629,62 @@ const ConsistencyTracker = () => {
                 </div>
               )}
 
+              {/* Protect the target: giving back keeps the goalpost where you set it */}
+              {analysis.targetPushedGuidance?.canReduceBigDay &&
+                analysis.targetIncrease > 0 && (
+                  <div
+                    style={{
+                      background: "rgba(0, 0, 0, 0.3)",
+                      borderRadius: "6px",
+                      padding: "16px",
+                      borderLeft: "3px solid #ffaa00",
+                    }}>
+                    <div
+                      style={{
+                        fontSize: "10px",
+                        textTransform: "uppercase",
+                        letterSpacing: "1px",
+                        color: "#ffaa00",
+                        marginBottom: "8px",
+                      }}>
+                      Keep Your Target At{" "}
+                      {formatCurrency(analysis.targetNum)}
+                    </div>
+                    <div
+                      style={{
+                        color: "#e8e8e8",
+                        fontSize: "14px",
+                        lineHeight: "1.5",
+                      }}>
+                      Give back{" "}
+                      <span style={{ color: "#ffaa00", fontWeight: "600" }}>
+                        {formatCurrency(
+                          analysis.targetPushedGuidance.reduceAmount,
+                        )}
+                      </span>{" "}
+                      on Day {analysis.targetPushedGuidance.biggestDay.id} → day
+                      becomes{" "}
+                      <span style={{ color: "#fff", fontWeight: "500" }}>
+                        {formatCurrency(
+                          analysis.targetPushedGuidance.newBigDayAfterReduce,
+                        )}
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        color: "#666",
+                        fontSize: "12px",
+                        marginTop: "6px",
+                      }}>
+                      Otherwise this day forces your target up to{" "}
+                      <span style={{ color: "#ffaa00" }}>
+                        {formatCurrency(analysis.effectiveTarget)}
+                      </span>{" "}
+                      — {formatCurrency(analysis.targetIncrease)} more to earn
+                    </div>
+                  </div>
+                )}
+
               {/* Option C: Future day range */}
               <div
                 style={{
@@ -1637,13 +1734,10 @@ const ConsistencyTracker = () => {
                 </div>
                 <div
                   style={{ color: "#666", fontSize: "12px", marginTop: "6px" }}>
-                  {(analysis.guidance.tomorrowMin ?? 0) <=
-                  (analysis.guidance.tomorrowMax ?? 0)
-                    ? "Min to fix violation, max before creating a new one"
-                    : `Need ${Math.ceil(
-                        (analysis.guidance.tomorrowMin ?? 0) /
-                          (analysis.guidance.tomorrowMax ?? 1),
-                      )} more days to fix at this pace`}
+                  Min = pace that fixes it in {analysis.guidance.daysToFix} day
+                  {analysis.guidance.daysToFix === 1 ? "" : "s"}; max = most any
+                  single day may be at the {consistencyLimit}% limit. Go slower
+                  than the min and it just takes more days.
                 </div>
               </div>
             </div>
